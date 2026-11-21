@@ -1,0 +1,10 @@
+[package]
+name = "engine-core"
+description = "Traits and orchestration for the piano-lab engine. Knows nothing about devices, files or UI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

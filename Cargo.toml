@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/engine-core",
+    "crates/models",
+    "crates/calibration",
+    "crates/rt",
+    "crates/render-cli",
+]
+
+# Shared metadata every crate inherits with `field.workspace = true`.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Shared lint settings every crate opts into with `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

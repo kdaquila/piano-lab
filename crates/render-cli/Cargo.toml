@@ -1,0 +1,10 @@
+[package]
+name = "render-cli"
+description = "Deterministic offline renderer; doubles as test harness and research tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+# Rust build output
+/target/
+
+# Node / frontend (arrives with the Tauri app in step 0.5)
+node_modules/
+dist/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
