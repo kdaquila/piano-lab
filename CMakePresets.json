@@ -1,0 +1,71 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "windows-msvc",
+            "hidden": true,
+            "description": "MSVC + Ninja. Needs the Visual Studio developer environment (tools/dev-shell.ps1 sets it up; VS Code's CMake Tools does it automatically).",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "architecture": { "value": "x64", "strategy": "external" },
+            "toolset": { "value": "host=x64", "strategy": "external" },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl",
+                "CMAKE_CXX_COMPILER": "cl",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+        {
+            "name": "dev",
+            "displayName": "Dev (Debug)",
+            "description": "Everyday build: engine, backend and tests, with debug info.",
+            "inherits": "windows-msvc",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "description": "Optimised build, for listening and performance checks.",
+            "inherits": "windows-msvc",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "asan",
+            "displayName": "AddressSanitizer (engine only)",
+            "description": "Engine and tests under AddressSanitizer. Builds without JUCE, which also proves the engine doesn't need it.",
+            "inherits": "windows-msvc",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "PIANOLAB_ASAN": "ON",
+                "PIANOLAB_BUILD_BACKEND": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "dev", "configurePreset": "dev" },
+        { "name": "release", "configurePreset": "release" },
+        { "name": "asan", "configurePreset": "asan" }
+    ],
+    "testPresets": [
+        {
+            "name": "dev",
+            "configurePreset": "dev",
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan",
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        }
+    ]
+}

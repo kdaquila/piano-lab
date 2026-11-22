@@ -1,0 +1,19 @@
+# Basic formatting every editor understands (https://editorconfig.org).
+# C++ layout itself is clang-format's job (.clang-format); this covers the rest.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# YAML, including the clang tool configs
+[{*.yml,*.yaml,.clang-format,.clang-tidy,.clangd}]
+indent_size = 2
+
+# Two trailing spaces are a line break in Markdown
+[*.md]
+trim_trailing_whitespace = false

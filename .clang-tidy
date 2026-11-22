@@ -1,0 +1,70 @@
+# clang-tidy settings for piano-lab's C++ code (written for LLVM 23).
+#
+# Whole groups: bugprone, performance, modernize, concurrency.
+# Curated picks from readability and the C++ Core Guidelines.
+# Every warning is an error, so the code stays at zero.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  concurrency-*,
+  readability-identifier-naming,
+  readability-braces-around-statements,
+  readability-container-size-empty,
+  readability-const-return-type,
+  readability-convert-member-functions-to-static,
+  readability-delete-null-pointer,
+  readability-else-after-return,
+  readability-inconsistent-declaration-parameter-name,
+  readability-make-member-function-const,
+  readability-misleading-indentation,
+  readability-non-const-parameter,
+  readability-qualified-auto,
+  readability-redundant-*,
+  readability-simplify-boolean-expr,
+  readability-static-accessed-through-instance,
+  readability-uppercase-literal-suffix,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-missing-std-forward,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-prefer-member-initializer,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-rvalue-reference-param-not-moved,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-special-member-functions,
+  cppcoreguidelines-virtual-class-destructor,
+  -modernize-use-trailing-return-type,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: '*'
+
+# clang-tidy reads MSVC's build commands as clang-cl, which ignores a few MSVC-only flags
+# (e.g. /Zc:preprocessor). That's expected, not a problem in our code.
+ExtraArgs: ['-Wno-unused-command-line-argument']
+
+# Report problems in our own headers (dependencies are SYSTEM includes and never reported).
+HeaderFilterRegex: '.*[/\\](engine|backend)[/\\].*'
+
+CheckOptions:
+  # Naming: PascalCase types, camelCase functions and variables, lower_case namespaces.
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.TemplateParameterCase: CamelCase
+  readability-identifier-naming.ConceptCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.MethodCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.MemberCase: camelBack
+  readability-identifier-naming.ConstexprVariableCase: camelBack
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  # main() and Catch2's generated functions are exempt.
+  readability-identifier-naming.FunctionIgnoredRegexp: '^(main|CATCH2_.*|____C_A_T_C_H_.*)$'
+  readability-identifier-naming.VariableIgnoredRegexp: '^(autoRegistrar[0-9]+|____C_A_T_C_H_.*)$'

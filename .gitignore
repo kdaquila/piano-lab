@@ -1,13 +1,60 @@
-# Rust build output
-/target/
+# --- C++ ------------------------------------------------------------------------------------------
 
-# Node / frontend (arrives with the Tauri app in step 0.5)
+# Build output (one folder per CMake preset)
+/build/
+
+# Personal CMake presets (CMakePresets.json is shared; this file is each person's own)
+CMakeUserPresets.json
+
+# Compile database, if a tool copies it to the repo root (the real one is in build/<preset>/)
+/compile_commands.json
+
+# clangd's index
+/.cache/
+
+# Visual Studio (when opening the folder as a CMake project): settings cache and its default
+# build folder
+.vs/
+/out/
+*.user
+
+# Crash dumps
+*.dmp
+
+# --- UI (Node, from step 0.5) ---------------------------------------------------------------------
+
 node_modules/
 dist/
+*.tsbuildinfo
+.vite/
+coverage/
+npm-debug.log*
 
-# Editors and OS
-.vscode/
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# --- Secrets and personal settings ----------------------------------------------------------------
+
+# Environment files can hold secrets; share a .env.example instead
+.env
+.env.*
+!.env.example
+
+# Claude Code's personal settings (the shared .claude/settings.json can be committed)
+.claude/settings.local.json
+
+# --- Editors and OS -------------------------------------------------------------------------------
+
+# VS Code: share only the recommended extensions; settings stay personal
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
+*~
+
 Thumbs.db
+desktop.ini
 .DS_Store

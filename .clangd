@@ -1,0 +1,16 @@
+# clangd settings, read by any clangd-based editor (VS Code, Neovim, Emacs, Zed, ...).
+
+CompileFlags:
+  # The exact build flags, exported by the dev preset (cmake --preset dev).
+  CompilationDatabase: build/dev
+  # clangd reads MSVC's build commands as clang-cl, which ignores a few MSVC-only flags.
+  Add: [-Wno-unused-command-line-argument]
+
+Diagnostics:
+  # Show clang-tidy findings (configured in .clang-tidy) while editing.
+  ClangTidy:
+    FastCheckFilter: None
+
+Completion:
+  # Don't add #include lines automatically; our include order is clang-format's job.
+  HeaderInsertion: Never

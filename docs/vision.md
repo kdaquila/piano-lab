@@ -5,17 +5,22 @@
 ## The goal
 A high-quality, physically modelled piano that is **free, for a large audience, with low friction**. Anyone with a MIDI keyboard and an ordinary computer should be able to get a great-sounding, deeply customisable piano without buying software or building a studio.
 
-## The key idea: a local engine, controlled from anywhere
+## The key idea: a local piano, controlled from anywhere
 A piano-computer workstation desk is a luxury, and most homes don't have room for a home studio. So piano-lab is split in two:
 
-- **The engine (backend)** runs locally, next to the keyboard. It does the physics, the audio and the MIDI, and it can run **headless**, with no screen at all.
-- **The UI (frontend)** is a web app the engine serves itself. You open it on the same machine, or on **a phone or tablet on the local network**.
+- **The backend** runs locally, next to the keyboard. It runs the engine (the piano's physics) and handles the audio and the MIDI, and it can run **headless**, with no screen at all.
+- **The UI (frontend)** is a web app the backend serves itself. You open it on the same machine, or on **a phone or tablet on the local network**.
 
-The power is in that split. An old desktop or laptop tucked behind a digital piano becomes a standalone instrument, with all settings on your phone. A laptop on the piano does everything in one box. Same engine, same UI, same protocol.
+The power is in that split. An old desktop or laptop tucked behind a digital piano becomes a standalone instrument, with all settings on your phone. A laptop on the piano does everything in one box. Same backend, same UI, same protocol.
+
+**Terms used in these docs:**
+- The **engine** is the piano's physics and real-time plumbing: a library of standard C++ with no dependencies (`engine/`).
+- The **backend** is the program that runs the engine. It owns the audio and MIDI devices (through JUCE), serves the UI and speaks the control protocol (`backend/`).
+- The **UI** is the React web app (`ui/`).
 
 ```
-                     ┌──────────── piano-lab engine (C++) ────────────┐
-MIDI keyboard ──────▶│ physics · audio device · MIDI · presets         │──▶ speakers / DAC
+                     ┌──────────── piano-lab backend (C++) ────────────┐
+MIDI keyboard ──────▶│ engine (physics) · audio device · MIDI · presets│──▶ speakers / DAC
                      │ embedded web server: serves the React app +     │
                      │ a WebSocket control protocol                    │
                      └──────────────────────┬──────────────────────────┘
@@ -26,19 +31,19 @@ MIDI keyboard ──────▶│ physics · audio device · MIDI · preset
 ```
 
 ## An open control API
-The UI has no special access: it talks to the engine through the same **documented, versioned control protocol** anyone can use. On the laptop, the engine simply opens the UI in the user's default browser, which makes this visible: the piano is a local service, and the UI is one client of it.
+The UI has no special access: it talks to the backend through the same **documented, versioned control protocol** anyone can use. On the laptop, the backend simply opens the UI in the user's default browser, which makes this visible: the piano is a local service, and the UI is one client of it.
 
 That opens the door to things we'd never build ourselves:
 - **Custom frontends:** a minimal stage UI, a teaching tool, a tablet layout, a hardware control surface
-- **Scripts and research tools** that drive the engine directly
+- **Scripts and research tools** that drive the piano directly
 - **AI control through MCP:** an MCP server for piano-lab would let a user's own AI assistant voice the piano in plain words ("make the bass less boomy"). This fulfils the original summary's optional LLM assistant with no AI service built in: the user brings their own, and it stays entirely optional.
 
 ## Ways to run it
 
 | Mode | Who it's for | When |
 |---|---|---|
-| **All-in-one desktop** | A Windows laptop on or near the piano. Engine and UI on one machine, phone control available too. | **First: the MVP** |
-| **Headless box** | An old desktop or laptop behind the piano, controlled from a phone | The engine and UI work headless from the MVP. Making it a polished appliance (auto-start on boot, no screen needed, network discovery) comes after the MVP. |
+| **All-in-one desktop** | A Windows laptop on or near the piano. Backend and UI on one machine, phone control available too. | **First: the MVP** |
+| **Headless box** | An old desktop or laptop behind the piano, controlled from a phone | The backend and UI work headless from the MVP. Making it a polished appliance (auto-start on boot, no screen needed, network discovery) comes after the MVP. |
 | **DAW plugin** | Producers and home studios (VST3 / CLAP, AU on macOS) | Later |
 | **Small boards** (e.g. Raspberry Pi) | Tinkerers wanting a tiny appliance | Later, via low-cost quality presets |
 
@@ -50,7 +55,8 @@ That opens the door to things we'd never build ourselves:
 
 | Part | Choice | Why |
 |---|---|---|
-| Engine | **C++ with JUCE** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
+| Engine | **Standard C++20**, no dependencies | Fast to build and test, portable to anything (render CLI, plugin, other platforms, a future Python package), and cleanly MIT |
+| Backend | **C++ with JUCE 9** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
 | Web server | **cpp-httplib** (MIT): HTTP + WebSocket, single header | JUCE has no web server. Simplest to integrate; its thread-per-connection model is fine for a handful of clients. CivetWeb is the fallback. |
 | Protocol | **JSON over WebSocket**, with **nlohmann/json** (MIT) | Human-readable public API for frontends, scripts and AI tools; typed struct mapping and clear errors for bad input |
 | Real-time plumbing | **rigtorp/SPSCQueue** (MIT), wrapped as our own `rt::SpscQueue<T>` | Fixed-capacity single-producer/single-consumer queues between the MIDI, server and audio threads; never allocates after setup |
@@ -66,7 +72,7 @@ Two languages, each doing what it's best at: C++ for everything that runs the in
 - **Pin every dependency** to an exact version or commit (via CPM.cmake), and upgrade deliberately.
 - **Hide third-party libraries behind our own small interfaces.** Only one place in our code talks to each library, so swapping it later is a contained change (e.g. cpp-httplib lives only inside the control server).
 - **Header-only libraries are contained:** included from exactly one `.cpp` file, marked as system includes so our warning rules don't apply to them, and configured (`#define`s) in one place, on the CMake target. This keeps compile times, Windows-header clashes and configuration mismatches from spreading. *Exception:* small template libraries that include only standard headers (e.g. the SPSC queue) may be included wherever their wrapper type is used, since they carry none of those costs.
-- **The engine core is JUCE-free, standard C++ only.** `engine-core` and `models` never depend on JUCE, networking, JSON or UI code; those live in `app`. The physics engine stays portable, fast to test and cleanly MIT.
+- **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `backend/`; those live in `backend/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.
 - **Watch security advisories** for anything that parses network input (the web server, JSON), and keep those up to date.
 
 ## Performance: scale by presets, not by targeting the weakest machine
@@ -74,7 +80,7 @@ We don't tune for small boards up front. Instead, quality is **customisable**: p
 
 ## Remote control, done safely (later)
 - **Local network only** by default
-- **Pairing**: a PIN or code shown by the engine before a phone can control it
+- **Pairing**: a PIN or code shown by the backend before a phone can control it
 - **Discovery** via mDNS, so a phone can find `piano.local` without typing IP addresses
 
 ## Openness

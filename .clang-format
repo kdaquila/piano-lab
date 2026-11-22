@@ -1,0 +1,19 @@
+# clang-format settings for piano-lab's C++ code (written for LLVM 23).
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+PointerAlignment: Left # int* p, not int *p
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+# Our headers, then third-party, then the standard library, each group sorted.
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<pianolab/'
+    Priority: 1
+  - Regex: '^<(catch2|juce_[a-z_]+|httplib|nlohmann|rigtorp)/'
+    Priority: 2
+  - Regex: '^<[a-z_]+>$'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 2

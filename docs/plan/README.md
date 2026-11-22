@@ -10,11 +10,11 @@ This folder holds the working plan for piano-lab: what gets built, in what order
 
 ## Milestones
 
-The MVP is the **all-in-one Windows desktop**: a Windows laptop running the engine, with the web UI in a local window and on a phone over the local network.
+The MVP is the **all-in-one Windows desktop**: a Windows laptop running the backend, with the web UI in a local window and on a phone over the local network.
 
 | Milestone | Goal | Status |
 |---|---|---|
-| [0: Skeleton](milestone-0.md) | C++/JUCE engine: MIDI in → one sine per note → audio out, with the React UI served over the local network | Re-planning (stack changed to C++) |
+| [0: Skeleton](milestone-0.md) | C++ engine and JUCE backend: MIDI in → one sine per note → audio out, with the React UI served over the local network | In progress |
 | 1: Decay | Damped modes, render CLI, headless metric tests | Not started |
 | 2: Partials | Several modes per note | Not started |
 | 3: Stiffness | Inharmonic partials | Not started |
@@ -36,4 +36,4 @@ The MVP is the **all-in-one Windows desktop**: a Windows laptop running the engi
 Only the current milestone is planned in detail. Later ones get broken down when we reach them.
 
 ## History
-- **2026-11-21: stack changed from Rust to C++/JUCE + React**, and the architecture became a local engine with a web UI reachable over the local network. Steps 0.1–0.2 were first built in Rust (PRs on GitHub); their design decisions carry over, as listed in [vision.md](../vision.md#what-carries-over-from-the-rust-prototype).
+- **2026-11-21: stack changed from Rust to C++/JUCE + React**, and the architecture became a local backend with a web UI reachable over the local network. Steps 0.1–0.2 were first built in Rust (PRs on GitHub); their design decisions carry over, as listed in [vision.md](../vision.md#what-carries-over-from-the-rust-prototype).
