@@ -1,13 +1,20 @@
-# Rust build output
-/target/
+# C++ build output (one folder per CMake preset)
+/build/
 
-# Node / frontend (arrives with the Tauri app in step 0.5)
+# clangd's index
+/.cache/
+
+# Node / UI
 node_modules/
 dist/
 
-# Editors and OS
-.vscode/
+# Editors: ignore personal settings, but share the recommended VS Code setup
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
 *.swp
+
+# OS files
 Thumbs.db
 .DS_Store

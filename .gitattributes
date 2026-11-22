@@ -1,0 +1,7 @@
+# Normalise line endings: LF in the repository and working tree, so clang-format and diffs agree
+# on every machine.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
