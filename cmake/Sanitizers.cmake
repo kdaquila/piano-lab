@@ -9,6 +9,11 @@ if(NOT PIANOLAB_ASAN)
 endif()
 
 if(MSVC)
+    # MSVC refuses /fsanitize=address together with the /RTC1 runtime checks that CMake's Debug
+    # flags add, so drop those checks: ASan covers more anyway.
+    foreach(lang C CXX)
+        string(REGEX REPLACE "/RTC[1csu]+" "" CMAKE_${lang}_FLAGS_DEBUG "${CMAKE_${lang}_FLAGS_DEBUG}")
+    endforeach()
     add_compile_options(/fsanitize=address /Zi)
     # Edit-and-continue and incremental linking are incompatible with ASan.
     add_link_options(/INCREMENTAL:NO /DEBUG)

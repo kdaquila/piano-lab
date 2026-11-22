@@ -5,11 +5,15 @@
 # environment variable to choose where; otherwise it goes in the user's local cache folder.
 
 if(NOT DEFINED ENV{CPM_SOURCE_CACHE} AND NOT DEFINED CPM_SOURCE_CACHE)
-    if(WIN32)
-        set(CPM_SOURCE_CACHE "$ENV{LOCALAPPDATA}/CPM" CACHE PATH "CPM download cache")
+    if(WIN32 AND DEFINED ENV{LOCALAPPDATA} AND NOT "$ENV{LOCALAPPDATA}" STREQUAL "")
+        set(cpm_cache_default "$ENV{LOCALAPPDATA}/CPM")
+    elseif(NOT WIN32 AND DEFINED ENV{HOME} AND NOT "$ENV{HOME}" STREQUAL "")
+        set(cpm_cache_default "$ENV{HOME}/.cache/CPM")
     else()
-        set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/CPM" CACHE PATH "CPM download cache")
+        # No user folder in this environment (e.g. a service account): keep it in the build tree.
+        set(cpm_cache_default "${CMAKE_BINARY_DIR}/_cpm-cache")
     endif()
+    set(CPM_SOURCE_CACHE "${cpm_cache_default}" CACHE PATH "CPM download cache")
 endif()
 
 include(CPM) # cmake/CPM.cmake, v0.43.2, vendored

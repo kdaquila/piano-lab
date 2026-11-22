@@ -65,7 +65,7 @@ ctest --preset dev
 The presets are `dev` (debug), `release` (optimised) and `asan` (engine and tests under AddressSanitizer, built without JUCE). Output goes to `build/<preset>/`.
 
 ### The quality check
-One script runs everything: formatting, build, tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents, and it doesn't need the dev shell set up first.
+One script runs everything: formatting, build, tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents. It sets up the build environment itself and leaves your terminal's environment as it found it. It requires LLVM 23, so formatting is identical on every machine.
 ```powershell
 .\tools\check.ps1
 ```

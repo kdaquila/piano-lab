@@ -22,6 +22,7 @@ include(Sanitizers)
 include(Warnings)
 include(Dependencies)
 include(Testing)
+include(EngineRules)
 
 if(PIANOLAB_BUILD_TESTS)
     enable_testing()

@@ -12,5 +12,7 @@ function(pianolab_add_tests name)
     add_executable(${name} ${ARG_SOURCES})
     target_link_libraries(${name} PRIVATE ${ARG_LINK} Catch2::Catch2WithMain)
     pianolab_set_warnings(${name})
-    catch_discover_tests(${name} DISCOVERY_MODE PRE_TEST)
+    # CTest names must be unique across all executables, so each test is prefixed with its
+    # executable's name: two libraries may both have a test called "is deterministic".
+    catch_discover_tests(${name} DISCOVERY_MODE PRE_TEST TEST_PREFIX "${name}: ")
 endfunction()
