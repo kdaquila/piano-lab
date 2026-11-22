@@ -8,3 +8,11 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+
+[dev-dependencies]
+# Fails a test if anything allocates inside a checked closure. Test-only: it
+# swaps in a checking global allocator, which real builds must not have.
+assert_no_alloc = "1.1"

@@ -11,7 +11,7 @@ This folder holds the working plan for piano-lab: what gets built, in what order
 
 | Milestone | Goal | Status |
 |---|---|---|
-| [0: Skeleton](milestone-0.md) | MIDI in → one sine per note → audio out, with a basic UI | In progress (0.1 in review) |
+| [0: Skeleton](milestone-0.md) | MIDI in → one sine per note → audio out, with a basic UI | In progress (0.2) |
 | 1: Decay | Damped modes, render CLI, headless metric tests | Not started |
 | 2: Partials | Several modes per note | Not started |
 | 3: Stiffness | Inharmonic partials | Not started |
