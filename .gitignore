@@ -1,20 +1,61 @@
-# C++ build output (one folder per CMake preset)
+# --- C++ ------------------------------------------------------------------------------------------
+
+# Build output (one folder per CMake preset)
 /build/
+
+# Personal CMake presets (CMakePresets.json is shared; this file is each person's own)
+CMakeUserPresets.json
+
+# Compile database, if a tool copies it to the repo root (the real one is in build/<preset>/)
+/compile_commands.json
 
 # clangd's index
 /.cache/
 
-# Node / UI
+# Visual Studio (when opening the folder as a CMake project): settings cache and its default
+# build folder
+.vs/
+/out/
+*.user
+
+# Crash dumps
+*.dmp
+
+# --- UI (Node, from step 0.5) ---------------------------------------------------------------------
+
 node_modules/
 dist/
+*.tsbuildinfo
+.vite/
+coverage/
+npm-debug.log*
 
-# Editors: ignore personal settings, but share the recommended VS Code setup
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# --- Secrets and personal settings ----------------------------------------------------------------
+
+# Environment files can hold secrets; share a .env.example instead
+.env
+.env.*
+!.env.example
+
+# Claude Code's personal settings (the shared .claude/settings.json can be committed)
+.claude/settings.local.json
+
+# --- Editors and OS -------------------------------------------------------------------------------
+
+# VS Code: share the recommended setup, ignore everything personal
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea/
 *.swp
+*~
 
-# OS files
 Thumbs.db
+desktop.ini
 .DS_Store
