@@ -39,10 +39,10 @@ void noteAllocation() noexcept {
 }
 
 /// Runs `body` and returns how many heap allocations it made on this thread.
-template <typename Body> std::size_t countAllocations(Body&& body) {
+template <typename F> std::size_t countAllocations(F&& body) {
     const std::size_t before = allocationCount;
     ++checkDepth;
-    std::forward<Body>(body)();
+    std::forward<F>(body)();
     --checkDepth;
     return allocationCount - before;
 }

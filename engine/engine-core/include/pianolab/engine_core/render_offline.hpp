@@ -19,9 +19,9 @@ namespace pianolab::engine_core {
 /// Deterministic: the same inputs always give the same samples.
 ///
 /// For tests and offline rendering, so it allocates its output.
-template <KeyModel Key>
+template <KeyModel K>
 [[nodiscard]] std::vector<float>
-renderOffline(Keyboard<Key>& keyboard, std::span<const TimedEvent> events, std::size_t length) {
+renderOffline(Keyboard<K>& keyboard, std::span<const TimedEvent> events, std::size_t length) {
     std::vector<TimedEvent> sorted(events.begin(), events.end());
     const auto byTime = [](const TimedEvent& a, const TimedEvent& b) { return a.at < b.at; };
     if (!std::ranges::is_sorted(sorted, byTime)) {

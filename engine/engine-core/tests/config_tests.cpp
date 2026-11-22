@@ -14,9 +14,8 @@ namespace ec = pianolab::engine_core;
 namespace {
 
 /// True when every field's built-in default lies inside its own declared range.
-template <typename Config, typename... Fields>
-bool defaultsWithinRanges(const std::tuple<Fields...>& fields) {
-    const Config defaults{};
+template <typename C, typename... Fs> bool defaultsWithinRanges(const std::tuple<Fs...>& fields) {
+    const C defaults{};
     return std::apply(
         [&](const auto&... field) {
             return ((defaults.*field.member >= field.min && defaults.*field.member <= field.max) &&

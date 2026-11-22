@@ -37,12 +37,12 @@ inline constexpr int highestNote = lowestNote + static_cast<int>(keyCount) - 1;
 /// (state in, state out); `renderAdd` also adds the key's sound into `out`.
 ///
 /// Real-time rules: none of these may allocate, lock, block or do I/O, and all are noexcept.
-template <typename Key>
+template <typename K>
 concept KeyModel =
-    std::copyable<Key> && requires(const Key& key, float velocity, std::span<float> out) {
-        { strike(key, velocity) } noexcept -> std::same_as<Key>;
-        { release(key) } noexcept -> std::same_as<Key>;
-        { renderAdd(key, out) } noexcept -> std::same_as<Key>;
+    std::copyable<K> && requires(const K& key, float velocity, std::span<float> out) {
+        { strike(key, velocity) } noexcept -> std::same_as<K>;
+        { release(key) } noexcept -> std::same_as<K>;
+        { renderAdd(key, out) } noexcept -> std::same_as<K>;
         { isSilent(key) } noexcept -> std::same_as<bool>;
     };
 
@@ -50,8 +50,8 @@ concept KeyModel =
 ///
 /// There is no voice pool and no voice stealing: re-striking a key excites the same model again,
 /// as on a real piano. Make one with `makeKeyboard`.
-template <KeyModel Key> struct Keyboard {
-    std::array<Key, keyCount> keys;
+template <KeyModel K> struct Keyboard {
+    std::array<K, keyCount> keys;
     /// The longest stretch handed to a key model at once. Longer blocks are split.
     std::size_t maxBlock = 1;
     /// What the keyboard has recovered from so far.
@@ -61,10 +61,10 @@ template <KeyModel Key> struct Keyboard {
 /// Builds a keyboard for a validated render configuration, calling `makeKey(note)` once per key
 /// (A0 to C8). The factory is where each model gets prepared for the sample rate. Setup code:
 /// may allocate; can't fail, because the configuration is already valid.
-template <KeyModel Key, std::invocable<int> MakeKey>
-    requires std::same_as<std::invoke_result_t<MakeKey&, int>, Key>
-[[nodiscard]] Keyboard<Key> makeKeyboard(const Valid<RenderConfig>& render, MakeKey makeKey) {
-    Keyboard<Key> keyboard{.keys = {}, .maxBlock = render->maxBlock, .diagnostics = {}};
+template <KeyModel K, std::invocable<int> F>
+    requires std::same_as<std::invoke_result_t<F&, int>, K>
+[[nodiscard]] Keyboard<K> makeKeyboard(const Valid<RenderConfig>& render, F makeKey) {
+    Keyboard<K> keyboard{.keys = {}, .maxBlock = render->maxBlock, .diagnostics = {}};
     for (std::size_t index = 0; index < keyCount; ++index) {
         keyboard.keys[index] = makeKey(lowestNote + static_cast<int>(index));
     }
@@ -76,7 +76,7 @@ std::size_t replaceNonFinite(std::span<float> out, Diagnostics& diagnostics) noe
 
 /// Applies one event immediately: strikes or releases the key. Notes off the keyboard are
 /// ignored and velocities outside 0-1 are clamped; both are recorded.
-template <KeyModel Key> void apply(Keyboard<Key>& keyboard, const NoteEvent& event) noexcept {
+template <KeyModel K> void apply(Keyboard<K>& keyboard, const NoteEvent& event) noexcept {
     if (const auto* on = std::get_if<NoteOn>(&event)) {
         const auto index = keyIndex(on->note);
         if (!index) {
@@ -100,7 +100,7 @@ template <KeyModel Key> void apply(Keyboard<Key>& keyboard, const NoteEvent& eve
 }
 
 /// Adds every sounding key into `out`, handing models at most `maxBlock` samples at a time.
-template <KeyModel Key> void renderSpan(Keyboard<Key>& keyboard, std::span<float> out) noexcept {
+template <KeyModel K> void renderSpan(Keyboard<K>& keyboard, std::span<float> out) noexcept {
     // Keyboard is a plain struct, so guard against a hand-built one with maxBlock 0.
     const std::size_t step = std::max<std::size_t>(keyboard.maxBlock, 1);
     for (std::size_t start = 0; start < out.size(); start += step) {
@@ -119,8 +119,8 @@ template <KeyModel Key> void renderSpan(Keyboard<Key>& keyboard, std::span<float
 /// Real-time safe: never allocates, never throws, never stops. Problems (an oversized block,
 /// unsorted or late events, non-finite samples) are fixed up and recorded in the keyboard's
 /// diagnostics.
-template <KeyModel Key>
-void render(Keyboard<Key>& keyboard, std::span<float> out,
+template <KeyModel K>
+void render(Keyboard<K>& keyboard, std::span<float> out,
             std::span<const TimedEvent> events) noexcept {
     std::ranges::fill(out, 0.0F);
     if (out.size() > keyboard.maxBlock) {

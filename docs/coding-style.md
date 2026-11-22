@@ -51,7 +51,13 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 - **Style:** `///` above a declaration, `///<` after a struct field. Plain prose, with parameter names in backticks. No boilerplate `@param` tags that only repeat the name.
 - Struct fields get a comment when their meaning or units aren't obvious from the name.
 
-### 10. Code organisation
+### 10. Naming
+- `PascalCase` types and concepts, `camelCase` functions and variables, `lower_case` namespaces (enforced by clang-tidy).
+- **Template parameters are single letters**, so they never look like real types: `template <typename C, typename V>`. Pick a letter that hints at the role when one fits (`C` config, `V` value, `K` key model, `F` function, `R` result), otherwise `T`, `U`. A parameter pack counts as one parameter and takes a plural (`typename... Ts`).
+- **Up to three template parameters stay single letters.** Only a template with more than three uses descriptive words instead.
+- Document what each template parameter stands for in the doc comment when the letter alone isn't obvious.
+
+### 11. Code organisation
 - One topic per header/source pair, with `snake_case` file names. Public headers live in `include/pianolab/<library>/`.
 - Modelling code cites its sources (paper, book, or URL) in a comment next to the decision it informs.
 

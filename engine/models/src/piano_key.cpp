@@ -24,13 +24,11 @@ namespace {
 /// Like std::visit, but it can never throw: std::visit throws if a variant is empty, which can
 /// only happen when assigning a model throws, and ours never do. If it ever were empty, this
 /// returns `fallback` instead, so the audio thread keeps going.
-template <typename Result, typename Visitor, typename... Models>
-Result dispatch(const std::variant<Models...>& key, const Visitor& visitor,
-                Result fallback) noexcept {
-    Result result = fallback;
+template <typename R, typename F, typename... Ts>
+R dispatch(const std::variant<Ts...>& key, const F& visitor, R fallback) noexcept {
+    R result = fallback;
     // Tries each model type in turn; exactly one matches.
-    (void)((std::get_if<Models>(&key) != nullptr &&
-            (result = visitor(*std::get_if<Models>(&key)), true)) ||
+    (void)((std::get_if<Ts>(&key) != nullptr && (result = visitor(*std::get_if<Ts>(&key)), true)) ||
            ...);
     return result;
 }
