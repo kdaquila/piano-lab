@@ -42,7 +42,7 @@ You need:
   winget install --id LLVM.LLVM --exact
   ```
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
-- Optional: **VS Code**. Open the folder and accept the recommended extensions (clangd, CMake Tools). Visual Studio stays available as a debugger.
+- Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `tools/check.ps1` is what enforces formatting. Visual Studio stays available as a debugger.
 
 The first configure downloads the pinned dependencies (JUCE, Catch2) into a shared cache (`%LOCALAPPDATA%\CPM`, or set `CPM_SOURCE_CACHE`), so it takes a few minutes. Later configures are quick.
 
