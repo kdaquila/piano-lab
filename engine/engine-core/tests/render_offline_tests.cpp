@@ -20,10 +20,12 @@ namespace ec = pianolab::engine_core;
 constexpr std::size_t maxBlock = 16;
 constexpr int middleC = 60;
 
+/// A keyboard of constant test keys, all released.
 auto makeTestKeyboard() {
     return ec::makeKeyboard<ConstantKey>(maxBlock, [](int /*note*/) { return ConstantKey{}; });
 }
 
+/// How many samples equal `value` exactly.
 std::size_t countEqual(const std::vector<float>& samples, float value) {
     return static_cast<std::size_t>(std::ranges::count(samples, value));
 }

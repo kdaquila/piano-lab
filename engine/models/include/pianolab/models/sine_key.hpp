@@ -35,6 +35,7 @@ struct SineState {
     bool released = true;
 };
 
+/// One key of the sine model: its fixed coefficients and its running state.
 struct SineKey {
     SineCoeffs coeffs;
     SineState state;

@@ -4,7 +4,7 @@
 #include <exception>
 #include <iostream>
 
-// A placeholder until the render CLI is built in Milestone 1.
+/// Entry point. A placeholder until the render CLI is built in Milestone 1: prints the key count.
 int main() {
     try {
         std::cout << "piano-lab render-cli (placeholder)\n"

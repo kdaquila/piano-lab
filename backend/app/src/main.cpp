@@ -6,6 +6,7 @@
 #include <exception>
 #include <iostream>
 
+/// Entry point. A placeholder until step 0.3: prints the key count and the JUCE version.
 int main() {
     try {
         std::cout << "piano-lab (placeholder)\n"

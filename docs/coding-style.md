@@ -41,7 +41,14 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 - Setup code (outside the audio thread) may throw on bad settings. The backend catches everything at its boundaries, logs it, and falls back instead of exiting.
 - **Tests are the strict part:** normal-use tests check that the diagnostics stay at zero, and dedicated tests trigger each problem and check both the recovery and the recorded diagnostic.
 
-### 9. Code organisation
+### 9. Every declaration has a doc comment
+- **Every function, type, concept, type alias and namespace-level constant gets a `///` doc comment**: public and internal alike, including helpers in anonymous namespaces and in tests.
+- Exceptions: lambdas, `TEST_CASE`s (the test name is the description), and a `.cpp` definition of a function already documented at its declaration (document once, where it's declared). A set of standard overloads, such as the `operator new`/`delete` family, may share one comment.
+- **What to write:** start with one sentence on what it does or returns. Then add whatever isn't obvious from the signature: units (seconds, samples, Hz, 0-1), what happens with bad input (recovered and recorded, or throws), real-time safety, which parameters it writes to, and sources for modelling choices.
+- **Style:** `///` above a declaration, `///<` after a struct field. Plain prose, with parameter names in backticks. No boilerplate `@param` tags that only repeat the name.
+- Struct fields get a comment when their meaning or units aren't obvious from the name.
+
+### 10. Code organisation
 - One topic per header/source pair, with `snake_case` file names. Public headers live in `include/pianolab/<library>/`.
 - Modelling code cites its sources (paper, book, or URL) in a comment next to the decision it informs.
 

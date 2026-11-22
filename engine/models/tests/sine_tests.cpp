@@ -33,14 +33,17 @@ constexpr double sampleRate = 48'000.0;
 constexpr std::size_t blockSize = 256;
 constexpr int a4 = 69;
 
+/// A fresh keyboard of sine keys at the test sample rate and block size.
 models::PianoKeyboard makeKeyboard() {
     return models::makeSineKeyboard(sampleRate, blockSize);
 }
 
+/// The number of samples in `s` seconds at the test sample rate.
 std::size_t seconds(double s) {
     return static_cast<std::size_t>(std::lround(s * sampleRate));
 }
 
+/// The largest absolute sample value.
 float peak(std::span<const float> samples) {
     float result = 0.0F;
     for (const float sample : samples) {
@@ -49,6 +52,7 @@ float peak(std::span<const float> samples) {
     return result;
 }
 
+/// An amplitude in decibels relative to full scale (1.0 = 0 dB).
 double decibels(float amplitude) {
     return 20.0 * std::log10(static_cast<double>(amplitude));
 }
@@ -69,6 +73,7 @@ double measureFrequency(std::span<const float> samples) {
     return periods * sampleRate / (crossings.back() - crossings.front());
 }
 
+/// The sine key for MIDI `note`. Throws if the note is off the keyboard.
 const models::SineKey& sineKey(const models::PianoKeyboard& keyboard, int note) {
     const auto index = ec::keyIndex(note);
     if (!index) {

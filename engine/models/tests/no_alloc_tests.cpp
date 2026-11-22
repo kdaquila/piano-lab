@@ -24,9 +24,12 @@
 
 namespace {
 
-thread_local std::size_t checkDepth = 0;      // > 0 while a check is running on this thread
-thread_local std::size_t allocationCount = 0; // allocations seen during checks on this thread
+/// Above zero while a check is running on this thread.
+thread_local std::size_t checkDepth = 0;
+/// Allocations seen during checks on this thread.
+thread_local std::size_t allocationCount = 0;
 
+/// Counts an allocation if a check is running on this thread.
 void noteAllocation() noexcept {
     if (checkDepth > 0) {
         ++allocationCount;
@@ -42,6 +45,8 @@ template <typename Body> std::size_t countAllocations(Body&& body) {
     return allocationCount - before;
 }
 
+/// Counts and performs an ordinary allocation. Throws std::bad_alloc when out of memory, as
+/// operator new must.
 void* allocate(std::size_t size) {
     noteAllocation();
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc): this *is* the allocator
@@ -51,6 +56,8 @@ void* allocate(std::size_t size) {
     throw std::bad_alloc();
 }
 
+/// Counts and performs an over-aligned allocation (for types declared `alignas` beyond the
+/// default). Throws std::bad_alloc when out of memory.
 void* allocateAligned(std::size_t size, std::align_val_t alignment) {
     noteAllocation();
     const auto align = static_cast<std::size_t>(alignment);
@@ -66,10 +73,12 @@ void* allocateAligned(std::size_t size, std::align_val_t alignment) {
     return memory;
 }
 
+/// Frees memory from `allocate`.
 void deallocate(void* memory) noexcept {
     std::free(memory); // NOLINT(cppcoreguidelines-no-malloc): this *is* the allocator
 }
 
+/// Frees memory from `allocateAligned`.
 void deallocateAligned(void* memory) noexcept {
 #ifdef _MSC_VER
     _aligned_free(memory);
@@ -80,7 +89,9 @@ void deallocateAligned(void* memory) noexcept {
 
 } // namespace
 
-// The replaceable global allocation functions ([new.delete] in the C++ standard).
+/// The replaceable global allocation functions ([new.delete] in the C++ standard), one doc
+/// comment for the whole set: every `new` counts and allocates through the helpers above, and
+/// every `delete` frees through the matching helper.
 // NOLINTBEGIN(readability-inconsistent-declaration-parameter-name)
 void* operator new(std::size_t size) {
     return allocate(size);
@@ -121,8 +132,7 @@ void operator delete[](void* memory, std::size_t /*size*/,
 }
 // NOLINTEND(readability-inconsistent-declaration-parameter-name)
 
-// --- The checker works
-// ----------------------------------------------------------------------------
+// --- The checker works --------------------------------------------------------------------------
 
 namespace {
 

@@ -29,10 +29,12 @@ struct TimedEvent {
     NoteEvent event;
 };
 
+/// A key press of MIDI `note` with `velocity` (0-1), happening at sample `at`.
 [[nodiscard]] constexpr TimedEvent noteOn(std::size_t at, int note, float velocity) noexcept {
     return {.at = at, .event = NoteOn{.note = note, .velocity = velocity}};
 }
 
+/// A key release of MIDI `note`, happening at sample `at`.
 [[nodiscard]] constexpr TimedEvent noteOff(std::size_t at, int note) noexcept {
     return {.at = at, .event = NoteOff{.note = note}};
 }

@@ -25,10 +25,12 @@ constexpr std::size_t maxBlock = 64;
 constexpr int middleC = 60;
 constexpr int e4 = 64;
 
+/// A keyboard of constant test keys, all released.
 Keyboard<ConstantKey> makeTestKeyboard() {
     return ec::makeKeyboard<ConstantKey>(maxBlock, [](int /*note*/) { return ConstantKey{}; });
 }
 
+/// True when every sample equals `value` exactly.
 bool allEqual(std::span<const float> samples, float value) {
     return std::ranges::all_of(samples, [value](float sample) { return sample == value; });
 }
