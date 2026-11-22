@@ -1,0 +1,22 @@
+#include <pianolab/engine_core/diagnostics.hpp>
+#include <pianolab/engine_core/keyboard.hpp>
+
+#include <cmath>
+#include <cstddef>
+#include <span>
+
+namespace pianolab::engine_core {
+
+std::size_t replaceNonFinite(std::span<float> out, Diagnostics& diagnostics) noexcept {
+    std::size_t fixed = 0;
+    for (float& sample : out) {
+        if (!std::isfinite(sample)) {
+            sample = 0.0F;
+            ++fixed;
+            record(diagnostics, "sample was NaN or infinite; replaced with silence");
+        }
+    }
+    return fixed;
+}
+
+} // namespace pianolab::engine_core

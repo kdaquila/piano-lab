@@ -55,7 +55,7 @@ That opens the door to things we'd never build ourselves:
 
 | Part | Choice | Why |
 |---|---|---|
-| Engine | **Standard C++20**, no dependencies | Fast to build and test, portable to anything (render CLI, plugin, other platforms, a future Python package), and cleanly MIT |
+| Engine | **Standard C++23**, no dependencies | Fast to build and test, portable to anything (render CLI, plugin, other platforms, a future Python package), and cleanly MIT |
 | Backend | **C++ with JUCE 9** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
 | Web server | **cpp-httplib** (MIT): HTTP + WebSocket, single header | JUCE has no web server. Simplest to integrate; its thread-per-connection model is fine for a handful of clients. CivetWeb is the fallback. |
 | Protocol | **JSON over WebSocket**, with **nlohmann/json** (MIT) | Human-readable public API for frontends, scripts and AI tools; typed struct mapping and clear errors for bad input |
@@ -74,6 +74,9 @@ Two languages, each doing what it's best at: C++ for everything that runs the in
 - **Header-only libraries are contained:** included from exactly one `.cpp` file, marked as system includes so our warning rules don't apply to them, and configured (`#define`s) in one place, on the CMake target. This keeps compile times, Windows-header clashes and configuration mismatches from spreading. *Exception:* small template libraries that include only standard headers (e.g. the SPSC queue) may be included wherever their wrapper type is used, since they carry none of those costs.
 - **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `backend/`; those live in `backend/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.
 - **Watch security advisories** for anything that parses network input (the web server, JSON), and keep those up to date.
+
+## The music never stops
+An error must never interrupt someone playing, in any build. The engine recovers from every problem it can (and there's a defined fallback for each), records it, and keeps playing. The backend logs everything (it's a single-user local program, so it can log freely), and the UI shows problems in a log and error panel the user can show or hide like any other part of the interface. See [docs/coding-style.md](coding-style.md).
 
 ## Performance: scale by presets, not by targeting the weakest machine
 We don't tune for small boards up front. Instead, quality is **customisable**: presets can trade quality for CPU (fewer modes per string, simpler soundboard, lower polyphony for sympathetic resonance, etc.), so weaker hardware still plays flawlessly at reduced detail. The original target stays the reference: the sustain-pedal worst case under 50% of one core on a normal Windows laptop.

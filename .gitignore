@@ -43,8 +43,9 @@ playwright/.cache/
 .env.*
 !.env.example
 
-# Claude Code's personal settings (the shared .claude/settings.json can be committed)
+# Claude Code: personal settings and notes (shared settings, rules and CLAUDE.md are committed)
 .claude/settings.local.json
+CLAUDE.local.md
 
 # --- Editors and OS -------------------------------------------------------------------------------
 

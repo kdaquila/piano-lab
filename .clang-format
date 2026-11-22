@@ -6,14 +6,17 @@ AccessModifierOffset: -4
 PointerAlignment: Left # int* p, not int *p
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortLambdasOnASingleLine: All
-# Our headers, then third-party, then the standard library, each group sorted.
+# Local "..." headers, then our libraries, then third-party, then the standard library, each
+# group sorted.
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^<pianolab/'
+  - Regex: '^"'
     Priority: 1
+  - Regex: '^<pianolab/'
+    Priority: 2
   - Regex: '^<(catch2|juce_[a-z_]+|httplib|nlohmann|rigtorp)/'
-    Priority: 2
-  - Regex: '^<[a-z_]+>$'
     Priority: 3
+  - Regex: '^<[a-z_]+>$'
+    Priority: 4
   - Regex: '.*'
-    Priority: 2
+    Priority: 3

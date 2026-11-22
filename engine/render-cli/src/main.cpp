@@ -1,18 +1,18 @@
-#include <pianolab/engine_core/engine_core.hpp>
-#include <pianolab/models/models.hpp>
+#include <pianolab/engine_core/keyboard.hpp>
 
 #include <cstdio>
 #include <exception>
 #include <iostream>
 
+/// Entry point. A placeholder until the render CLI is built in Milestone 1: prints the key count.
 int main() {
     try {
         std::cout << "piano-lab render-cli (placeholder)\n"
-                  << "  uses " << pianolab::engine_core::libraryName() << " and "
-                  << pianolab::models::libraryName() << '\n';
+                  << "  keyboard: " << pianolab::engine_core::keyCount << " keys\n";
         return 0;
     } catch (const std::exception& e) {
-        // C I/O here, because it never throws: an exception can't escape main.
+        // C I/O here, because it never throws (std::println can): an exception can't escape main.
+        // NOLINTNEXTLINE(modernize-use-std-print)
         std::fprintf(stderr, "error: %s\n", e.what());
     } catch (...) {
         std::fputs("error: unknown exception\n", stderr);
