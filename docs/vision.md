@@ -75,6 +75,9 @@ Two languages, each doing what it's best at: C++ for everything that runs the in
 - **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `backend/`; those live in `backend/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.
 - **Watch security advisories** for anything that parses network input (the web server, JSON), and keep those up to date.
 
+## The music never stops
+An error must never interrupt someone playing, in any build. The engine recovers from every problem it can (and there's a defined fallback for each), records it, and keeps playing. The backend logs everything (it's a single-user local program, so it can log freely), and the UI shows problems in a log and error panel the user can show or hide like any other part of the interface. See [docs/coding-style.md](coding-style.md).
+
 ## Performance: scale by presets, not by targeting the weakest machine
 We don't tune for small boards up front. Instead, quality is **customisable**: presets can trade quality for CPU (fewer modes per string, simpler soundboard, lower polyphony for sympathetic resonance, etc.), so weaker hardware still plays flawlessly at reduced detail. The original target stays the reference: the sustain-pedal worst case under 50% of one core on a normal Windows laptop.
 

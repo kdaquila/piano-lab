@@ -1,4 +1,4 @@
-#include <pianolab/engine_core/engine_core.hpp>
+#include <pianolab/engine_core/keyboard.hpp>
 
 #include <juce_core/juce_core.h>
 
@@ -9,7 +9,7 @@
 int main() {
     try {
         std::cout << "piano-lab (placeholder)\n"
-                  << "  uses " << pianolab::engine_core::libraryName() << " and "
+                  << "  keyboard: " << pianolab::engine_core::keyCount << " keys, "
                   << juce::SystemStats::getJUCEVersion() << '\n';
         return 0;
     } catch (const std::exception& e) {

@@ -23,7 +23,7 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `ui/` | **The UI:** a React web app (from step 0.5) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `tools/` | Developer scripts, such as the quality check |
-| `docs/` | Vision and plan |
+| `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
 
 ## Building (Windows)
 

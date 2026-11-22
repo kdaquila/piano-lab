@@ -1,0 +1,66 @@
+# Coding style (C++)
+
+piano-lab's C++ is written in a **pragmatic functional style**: plain data, free functions, and immutable values by default. Mutation is allowed, but only on purpose. Formatting and naming are enforced by `.clang-format` and `.clang-tidy`; this document covers what the tools can't.
+
+## The rules
+
+### 1. Data is plain structs
+- Use aggregates: public fields, no getters or setters, default member values, and designated initializers to build them (`SineParams{.gain = 0.25}`).
+- A `class` with private state is the exception. Use one only when it genuinely protects an invariant or owns a resource (RAII). It should be rare.
+
+### 2. Behaviour is free functions
+- Put functions in the library's namespace (`pianolab::models`), not inside types.
+- Make them **pure** wherever possible: inputs by value or `const&`, the result returned, no hidden state, no side effects.
+- Mark results `[[nodiscard]]`. Mark functions that run on the audio thread `noexcept`.
+- Maths (tuning, coefficients, modal frequencies, hammer curves) is always pure functions. They're the easiest code to test.
+
+### 3. Immutable by default, mutable on purpose
+- Prefer `const` locals and returning new values over modifying existing ones. Small state structs are cheap to copy: `SineState next = strike(state, coeffs, velocity);`
+- **Mutation is allowed** when it's needed for performance or the problem is inherently stateful. Typical cases are audio buffers, per-block state on the audio thread, and storage allocated up front.
+- When something is mutated, keep it local and visible: a non-`const` reference or `std::span<float>` parameter means "this function writes here". Don't mutate casually, and don't mutate through hidden or shared state.
+
+### 4. No purist functional programming
+- No currying, monads, point-free style, combinator libraries, or chains of higher-order functions and `std::function`.
+- Ordinary `for` loops are fine and often clearest. Use `<algorithm>`/`<ranges>` when it actually reads better.
+
+### 5. Polymorphism with `std::variant`, not inheritance
+- A closed set of alternatives is a `std::variant`, dispatched with `std::visit` (like a TypeScript discriminated union with a `switch`). Key models are the main example.
+- **No inheritance hierarchies.** The one exception is implementing a third-party interface that requires it, such as JUCE's audio callback. That lives in a thin adapter in `backend/`, and the rest of the code never sees it.
+
+### 6. Real-time rules (the audio thread)
+- Never allocate, lock, block, throw, or do I/O while rendering. Setup functions (`prepare…`) may allocate; rendering may not. The no-allocation test enforces this.
+- Use fixed-size data on the audio path. Audio buffers are `std::span<float>`, and model state is `double` where precision matters.
+
+### 7. Threads share immutable snapshots or queues
+- Never share mutable fields between threads.
+- Settings changes are new immutable snapshots handed to the audio thread. Events travel through single-producer/single-consumer queues (`rt::SpscQueue`). Single numbers can be atomics.
+
+### 8. Errors are recovered and reported, never fatal
+- **The music never stops for an error**, in any build. There are no aborting `assert`s, and nothing on the audio thread throws.
+- On the audio path, every problem gets a defined fallback (clamp, skip, split, silence) and is recorded in the engine's fixed-size `Diagnostics` (a counter per problem kind). The backend reads them on another thread, logs everything, and forwards them to the UI.
+- Setup code (outside the audio thread) may throw on bad settings. The backend catches everything at its boundaries, logs it, and falls back instead of exiting.
+- **Tests are the strict part:** normal-use tests check that the diagnostics stay at zero, and dedicated tests trigger each problem and check both the recovery and the recorded diagnostic.
+
+### 9. Code organisation
+- One topic per header/source pair, with `snake_case` file names. Public headers live in `include/pianolab/<library>/`.
+- Modelling code cites its sources (paper, book, or URL) in a comment next to the decision it informs.
+
+## Example
+From `engine/models/include/pianolab/models/sine_key.hpp`:
+```cpp
+// Plain data: configuration, coefficients derived once, running state.
+struct SineParams { double gain = 0.25; double attackT60 = 0.005; double releaseT60 = 0.25; };
+struct SineCoeffs { double phaseStep; double gain; double attackCoeff; double releaseCoeff; };
+struct SineState  { double phase; double amplitude; double target; double coeff; bool released; };
+struct SineKey    { SineCoeffs coeffs; SineState state; };
+
+// Setup: computes the coefficients once; they never change afterwards.
+[[nodiscard]] SineKey makeSineKey(double frequency, const SineParams& params, double sampleRate);
+
+// Pure: an event takes the old key and returns the new one.
+[[nodiscard]] SineKey strike(SineKey key, float velocity) noexcept;
+
+// Mutation on purpose: adds into the audio buffer, and returns the key's updated state.
+[[nodiscard]] SineKey renderAdd(SineKey key, std::span<float> out) noexcept;
+```
+Key models are combined as `using PianoKey = std::variant<SineKey /*, ...*/>;`, and the keyboard accepts any type that provides these functions (the `KeyModel` concept in `engine_core/keyboard.hpp`).
