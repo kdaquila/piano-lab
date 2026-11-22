@@ -48,7 +48,7 @@
 
 - **Dependencies via CPM.cmake:** one small file in the repo (a wrapper around CMake's FetchContent) with a shared download cache. Every dependency is pinned to an exact version tag or commit, for reproducible builds. Moving to vcpkg later stays possible if the list grows heavy.
 
-- **C++20.** Fully supported by MSVC, Clang and GCC and supported by JUCE 9. Gives `std::span` for audio buffers, concepts, `std::numbers`, designated initializers. C++23 (e.g. `std::expected`) waits until every target compiler, Apple Clang included, fully supports it.
+- **C++23** (changed from C++20 on 2026-11-22). Every target compiler now supports `std::expected`, our `Result` type: MSVC 19.33+, GCC 12+, Clang 16+, Apple Clang 15+. JUCE 9 and Catch2 build cleanly with it (verified). Features are used only when **all** targets support them (MSVC 19.44, GCC 13, Clang 17, Apple Clang 15); `.claude/rules/cpp23.md` lists which ones, from the cppreference support table. Known costs, for later: building on Linux needs GCC 13+ or Clang 17+ (e.g. Ubuntu 24.04, Debian 13; not Ubuntu 22.04), shipped Linux binaries need care with the C++ runtime version, and macOS development needs Xcode 15+.
 
 - **Tests: Catch2 v3**, run through CTest. Readable pytest-like assertions, float matchers (`WithinAbs`, `WithinRel`) for numeric audio checks, and built-in benchmarking for the CPU-budget tests later. Engine tests use real objects headless, so no mocking framework is needed.
 

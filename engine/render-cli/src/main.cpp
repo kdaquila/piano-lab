@@ -11,7 +11,8 @@ int main() {
                   << "  keyboard: " << pianolab::engine_core::keyCount << " keys\n";
         return 0;
     } catch (const std::exception& e) {
-        // C I/O here, because it never throws: an exception can't escape main.
+        // C I/O here, because it never throws (std::println can): an exception can't escape main.
+        // NOLINTNEXTLINE(modernize-use-std-print)
         std::fprintf(stderr, "error: %s\n", e.what());
     } catch (...) {
         std::fputs("error: unknown exception\n", stderr);

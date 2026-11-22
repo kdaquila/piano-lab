@@ -11,7 +11,7 @@ option(PIANOLAB_BUILD_BACKEND "Build the JUCE backend (audio devices, MIDI, serv
 option(PIANOLAB_BUILD_TESTS "Build the test suites" ON)
 option(PIANOLAB_ASAN "Build everything with AddressSanitizer" OFF)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 # We don't use C++20 modules, so skip the per-file module dependency scan.

@@ -20,7 +20,8 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 - When something is mutated, keep it local and visible: a non-`const` reference or `std::span<float>` parameter means "this function writes here". Don't mutate casually, and don't mutate through hidden or shared state.
 
 ### 4. No purist functional programming
-- No currying, monads, point-free style, combinator libraries, or chains of higher-order functions and `std::function`.
+- Don't write our own functional abstractions: no home-made monads, currying, point-free style, combinator libraries, or chains of `std::function`.
+- **The standard library's own are fine:** `std::optional` and `std::expected` with `and_then`, `transform` and `or_else`, and the standard ranges views, when they read clearly.
 - Ordinary `for` loops are fine and often clearest. Use `<algorithm>`/`<ranges>` when it actually reads better.
 
 ### 5. Polymorphism with `std::variant`, not inheritance
@@ -38,13 +39,15 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 ### 8. Errors are recovered and reported, never fatal
 - **The music never stops for an error**, in any build. There are no aborting `assert`s, and nothing on the audio thread throws.
 - On the audio path, every problem gets a defined fallback (clamp, skip, split, silence) and is recorded in the engine's fixed-size `Diagnostics` (a counter per problem kind). The backend reads them on another thread, logs everything, and forwards them to the UI.
-- Setup code (outside the audio thread) may throw on bad settings. The backend catches everything at its boundaries, logs it, and falls back instead of exiting.
+- **Errors are values, Rust-style.** An operation that can fail returns `std::expected<T, Error>` (our `Result`), and "maybe a value" is `std::optional<T>` (our `Option`). Callers handle them in ordinary code (`if (!result) { … }`), or with the standard monadic methods.
+- **One error type**, `Error{message}`, with a clear human-readable message. No error enums or hierarchies until a real need shows up.
+- **Our code doesn't throw**, and nothing catches by exception type. The standard library can still throw in setup code (e.g. out of memory), so the backend has one catch-all at its outer boundary that logs the message and keeps going.
 - **Tests are the strict part:** normal-use tests check that the diagnostics stay at zero, and dedicated tests trigger each problem and check both the recovery and the recorded diagnostic.
 
 ### 9. Every declaration has a doc comment
 - **Every function, type, concept, type alias and namespace-level constant gets a `///` doc comment**: public and internal alike, including helpers in anonymous namespaces and in tests.
 - Exceptions: lambdas, `TEST_CASE`s (the test name is the description), and a `.cpp` definition of a function already documented at its declaration (document once, where it's declared). A set of standard overloads, such as the `operator new`/`delete` family, may share one comment.
-- **What to write:** start with one sentence on what it does or returns. Then add whatever isn't obvious from the signature: units (seconds, samples, Hz, 0-1), what happens with bad input (recovered and recorded, or throws), real-time safety, which parameters it writes to, and sources for modelling choices.
+- **What to write:** start with one sentence on what it does or returns. Then add whatever isn't obvious from the signature: units (seconds, samples, Hz, 0-1), what happens with bad input (recovered and recorded, or the `Error` it returns), real-time safety, which parameters it writes to, and sources for modelling choices.
 - **Style:** `///` above a declaration, `///<` after a struct field. Plain prose, with parameter names in backticks. No boilerplate `@param` tags that only repeat the name.
 - Struct fields get a comment when their meaning or units aren't obvious from the name.
 
