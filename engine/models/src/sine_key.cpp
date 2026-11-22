@@ -1,28 +1,42 @@
+#include <pianolab/engine_core/config.hpp>
+#include <pianolab/engine_core/error.hpp>
 #include <pianolab/models/sine_key.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <span>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace pianolab::models {
+
+engine_core::Validated<SineConfig> validate(const SineConfig& config, std::string_view prefix) {
+    std::vector<engine_core::Error> errors;
+    SineConfig checked = engine_core::checkFields(config, prefix, sineConfigFields, errors);
+    return {.config = engine_core::detail::makeValid(checked), .errors = std::move(errors)};
+}
 
 double t60Coeff(double t60Seconds, double sampleRate) noexcept {
     // An exponential glide closes a fraction c of the remaining gap each sample, so after n
     // samples the gap is (1 - c)^n. A 60 dB drop is a factor of 1000: (1 - c)^n = 1/1000, so
     // c = 1 - exp(-ln(1000) / n).
+    constexpr double sixtyDecibels = 1000.0;
     const double samples = std::max(t60Seconds * sampleRate, 1.0);
-    return 1.0 - std::exp(-std::log(1000.0) / samples);
+    return 1.0 - std::exp(-std::log(sixtyDecibels) / samples);
 }
 
-SineKey makeSineKey(double frequency, const SineParams& params, double sampleRate) {
+SineKey makeSineKey(double frequency, const engine_core::Valid<SineConfig>& config,
+                    double sampleRate) noexcept {
     return {
         .coeffs =
             {
                 .phaseStep = frequency / sampleRate,
-                .gain = params.gain,
-                .attackCoeff = t60Coeff(params.attackT60, sampleRate),
-                .releaseCoeff = t60Coeff(params.releaseT60, sampleRate),
+                .gain = config->gain,
+                .attackCoeff = t60Coeff(config->attackT60, sampleRate),
+                .releaseCoeff = t60Coeff(config->releaseT60, sampleRate),
+                .silenceThreshold = config->silenceThreshold,
             },
         .state = {},
     };
@@ -55,14 +69,14 @@ SineKey renderAdd(SineKey key, std::span<float> out) noexcept {
         }
         state.amplitude += (state.target - state.amplitude) * state.coeff;
     }
-    if (state.released && state.amplitude < silenceThreshold) {
+    if (state.released && state.amplitude < key.coeffs.silenceThreshold) {
         state.amplitude = 0.0;
     }
     return key;
 }
 
 bool isSilent(const SineKey& key) noexcept {
-    return key.state.released && key.state.amplitude < silenceThreshold;
+    return key.state.released && key.state.amplitude < key.coeffs.silenceThreshold;
 }
 
 } // namespace pianolab::models

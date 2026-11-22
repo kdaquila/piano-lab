@@ -1,7 +1,9 @@
 #pragma once
 
+#include <pianolab/engine_core/config.hpp>
 #include <pianolab/engine_core/diagnostics.hpp>
 #include <pianolab/engine_core/note_event.hpp>
+#include <pianolab/engine_core/render_config.hpp>
 
 #include <algorithm>
 #include <array>
@@ -10,7 +12,6 @@
 #include <cstddef>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <type_traits>
 #include <variant>
 
@@ -48,23 +49,22 @@ concept KeyModel =
 /// All 88 keys, each holding its model for the life of the engine, plus what went wrong so far.
 ///
 /// There is no voice pool and no voice stealing: re-striking a key excites the same model again,
-/// as on a real piano. Make one with `makeKeyboard`, which checks the settings.
+/// as on a real piano. Make one with `makeKeyboard`.
 template <KeyModel Key> struct Keyboard {
     std::array<Key, keyCount> keys;
     /// The longest stretch handed to a key model at once. Longer blocks are split.
-    std::size_t maxBlock = 0;
+    std::size_t maxBlock = 1;
+    /// What the keyboard has recovered from so far.
     Diagnostics diagnostics;
 };
 
-/// Builds a keyboard, calling `makeKey(note)` once per key (A0 to C8). The factory is where each
-/// model gets prepared for the sample rate. Setup code: may allocate and throws on bad settings.
+/// Builds a keyboard for a validated render configuration, calling `makeKey(note)` once per key
+/// (A0 to C8). The factory is where each model gets prepared for the sample rate. Setup code:
+/// may allocate; can't fail, because the configuration is already valid.
 template <KeyModel Key, std::invocable<int> MakeKey>
     requires std::same_as<std::invoke_result_t<MakeKey&, int>, Key>
-[[nodiscard]] Keyboard<Key> makeKeyboard(std::size_t maxBlock, MakeKey makeKey) {
-    if (maxBlock == 0) {
-        throw std::invalid_argument("makeKeyboard: maxBlock must be at least 1");
-    }
-    Keyboard<Key> keyboard{.keys = {}, .maxBlock = maxBlock, .diagnostics = {}};
+[[nodiscard]] Keyboard<Key> makeKeyboard(const Valid<RenderConfig>& render, MakeKey makeKey) {
+    Keyboard<Key> keyboard{.keys = {}, .maxBlock = render->maxBlock, .diagnostics = {}};
     for (std::size_t index = 0; index < keyCount; ++index) {
         keyboard.keys[index] = makeKey(lowestNote + static_cast<int>(index));
     }
@@ -80,19 +80,19 @@ template <KeyModel Key> void apply(Keyboard<Key>& keyboard, const NoteEvent& eve
     if (const auto* on = std::get_if<NoteOn>(&event)) {
         const auto index = keyIndex(on->note);
         if (!index) {
-            record(keyboard.diagnostics, Problem::NoteOutsideKeyboard);
+            record(keyboard.diagnostics, "note outside A0-C8; ignored");
             return;
         }
         float velocity = on->velocity;
         if (std::isnan(velocity) || velocity < 0.0F || velocity > 1.0F) {
-            record(keyboard.diagnostics, Problem::VelocityOutOfRange);
+            record(keyboard.diagnostics, "velocity outside 0-1 (or NaN); clamped");
             velocity = velocity > 1.0F ? 1.0F : 0.0F;
         }
         keyboard.keys[*index] = strike(keyboard.keys[*index], velocity);
     } else if (const auto* off = std::get_if<NoteOff>(&event)) {
         const auto index = keyIndex(off->note);
         if (!index) {
-            record(keyboard.diagnostics, Problem::NoteOutsideKeyboard);
+            record(keyboard.diagnostics, "note outside A0-C8; ignored");
             return;
         }
         keyboard.keys[*index] = release(keyboard.keys[*index]);
@@ -124,7 +124,7 @@ void render(Keyboard<Key>& keyboard, std::span<float> out,
             std::span<const TimedEvent> events) noexcept {
     std::ranges::fill(out, 0.0F);
     if (out.size() > keyboard.maxBlock) {
-        record(keyboard.diagnostics, Problem::OversizedBlock);
+        record(keyboard.diagnostics, "block longer than maxBlock; rendered in chunks");
     }
 
     // Render the stretch up to each event, then apply the event.
@@ -132,11 +132,11 @@ void render(Keyboard<Key>& keyboard, std::span<float> out,
     for (const auto& timed : events) {
         std::size_t at = timed.at;
         if (at < position) {
-            record(keyboard.diagnostics, Problem::EventOutOfOrder);
+            record(keyboard.diagnostics, "event before the previous one; moved forward");
             at = position;
         }
         if (at > out.size()) {
-            record(keyboard.diagnostics, Problem::EventPastBlock);
+            record(keyboard.diagnostics, "event past the end of the block; applied at the end");
             at = out.size();
         }
         renderSpan(keyboard, out.subspan(position, at - position));

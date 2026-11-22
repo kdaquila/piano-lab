@@ -13,7 +13,6 @@
 
 namespace {
 
-using pianolab::engine_core::Problem;
 using pianolab::engine_core::testing::ConstantKey;
 namespace ec = pianolab::engine_core;
 
@@ -22,7 +21,8 @@ constexpr int middleC = 60;
 
 /// A keyboard of constant test keys, all released.
 auto makeTestKeyboard() {
-    return ec::makeKeyboard<ConstantKey>(maxBlock, [](int /*note*/) { return ConstantKey{}; });
+    return ec::makeKeyboard<ConstantKey>(pianolab::engine_core::testing::testRender(maxBlock),
+                                         [](int /*note*/) { return ConstantKey{}; });
 }
 
 /// How many samples equal `value` exactly.
@@ -45,7 +45,7 @@ TEST_CASE("renderOffline places events at absolute times across blocks") {
     CHECK(out[40] == 1.0F);
     CHECK(out[41] == 0.0F);
     CHECK(countEqual(out, 1.0F) == 36);
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("renderOffline handles a length that isn't a whole number of blocks") {
@@ -64,7 +64,7 @@ TEST_CASE("renderOffline ignores events after the end") {
     const auto out = ec::renderOffline(keyboard, events, 32);
 
     CHECK(countEqual(out, 0.0F) == 32);
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("renderOffline sorts unsorted events and records it") {
@@ -74,5 +74,6 @@ TEST_CASE("renderOffline sorts unsorted events and records it") {
     const auto out = ec::renderOffline(keyboard, events, 32);
 
     CHECK(countEqual(out, 1.0F) == 10);
-    CHECK(ec::count(keyboard.diagnostics, Problem::EventOutOfOrder) == 1);
+    CHECK(keyboard.diagnostics.total == 1);
+    CHECK(keyboard.diagnostics.last.contains("not sorted"));
 }

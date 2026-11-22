@@ -5,6 +5,8 @@
 // whole program. Counting (instead of aborting) lets the first tests prove the checker really
 // catches allocations, so a passing "never allocates" test means something.
 
+#include "harness.hpp"
+
 #include <pianolab/engine_core/diagnostics.hpp>
 #include <pianolab/engine_core/keyboard.hpp>
 #include <pianolab/engine_core/note_event.hpp>
@@ -171,11 +173,10 @@ TEST_CASE("the checker ignores allocations outside a check") {
 
 TEST_CASE("rendering never allocates") {
     namespace ec = pianolab::engine_core;
-    constexpr double sampleRate = 48'000.0;
-    constexpr std::size_t blockSize = 256;
+    using pianolab::models::testing::blockSize;
 
     // Setup may allocate: build the keyboard, buffers and event lists first.
-    auto keyboard = pianolab::models::makeSineKeyboard(sampleRate, blockSize);
+    auto keyboard = pianolab::models::testing::makeTestKeyboard();
     std::vector<float> out(blockSize);
     std::vector<float> oversized(blockSize * 3 + 7);
     std::vector<ec::TimedEvent> strikes;
@@ -209,5 +210,5 @@ TEST_CASE("rendering never allocates") {
 
     CHECK(count == 0);
     // The messy events and the oversized block were recovered from and recorded.
-    CHECK(ec::total(keyboard.diagnostics) > 0);
+    CHECK(keyboard.diagnostics.total > 0);
 }

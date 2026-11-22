@@ -1,6 +1,8 @@
 // Headless acceptance tests for the sine key model (Milestone 0, step 0.2), ported from the Rust
-// prototype. Every test renders through the real keyboard and also checks that the engine had
-// nothing to recover from.
+// prototype. Every test renders through the real keyboard, built from a validated configuration
+// by the test harness, and also checks that the engine had nothing to recover from.
+
+#include "harness.hpp"
 
 #include <pianolab/engine_core/diagnostics.hpp>
 #include <pianolab/engine_core/keyboard.hpp>
@@ -19,7 +21,7 @@
 #include <cstddef>
 #include <numbers>
 #include <span>
-#include <stdexcept>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -29,13 +31,13 @@ namespace ec = pianolab::engine_core;
 namespace models = pianolab::models;
 using Catch::Matchers::WithinAbs;
 
-constexpr double sampleRate = 48'000.0;
-constexpr std::size_t blockSize = 256;
+using models::testing::blockSize;
+using models::testing::sampleRate;
 constexpr int a4 = 69;
 
-/// A fresh keyboard of sine keys at the test sample rate and block size.
+/// A fresh keyboard of sine keys from the test configuration.
 models::PianoKeyboard makeKeyboard() {
-    return models::makeSineKeyboard(sampleRate, blockSize);
+    return models::testing::makeTestKeyboard();
 }
 
 /// The number of samples in `s` seconds at the test sample rate.
@@ -73,13 +75,10 @@ double measureFrequency(std::span<const float> samples) {
     return periods * sampleRate / (crossings.back() - crossings.front());
 }
 
-/// The sine key for MIDI `note`. Throws if the note is off the keyboard.
+/// The sine key for MIDI `note`, which must be on the keyboard (A0-C8).
 const models::SineKey& sineKey(const models::PianoKeyboard& keyboard, int note) {
-    const auto index = ec::keyIndex(note);
-    if (!index) {
-        throw std::out_of_range("sineKey: note is off the keyboard");
-    }
-    return std::get<models::SineKey>(keyboard.keys.at(*index));
+    return std::get<models::SineKey>(
+        keyboard.keys.at(static_cast<std::size_t>(note - ec::lowestNote)));
 }
 
 } // namespace
@@ -92,21 +91,21 @@ TEST_CASE("A4 plays at 440 Hz") {
     // Skip the first 10 ms so the attack has settled.
     const double hz = measureFrequency(std::span(out).subspan(seconds(0.01)));
     CHECK_THAT(hz, WithinAbs(440.0, 0.1));
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("every key plays its own pitch") {
     // A0 (27.5 Hz), middle C and C8 (4186 Hz): the extremes and the middle.
     for (const int note : {21, 60, 108}) {
         CAPTURE(note);
-        const double expected = ec::equalTemperament(note);
+        const double expected = ec::equalTemperament(note, ec::TuningConfig{}.a4Hz);
         auto keyboard = makeKeyboard();
         const std::array events{ec::noteOn(0, note, 1.0F)};
         const auto out = ec::renderOffline(keyboard, events, seconds(1.0));
 
         const double hz = measureFrequency(std::span(out).subspan(seconds(0.05)));
         CHECK_THAT(hz, WithinAbs(expected, expected * 1e-4));
-        CHECK(ec::total(keyboard.diagnostics) == 0);
+        CHECK(keyboard.diagnostics.total == 0);
     }
 }
 
@@ -118,7 +117,7 @@ TEST_CASE("output is neither silent nor clipping") {
     const float level = peak(out);
     CHECK(level > 0.1F);
     CHECK(level < 1.0F);
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("velocity scales loudness") {
@@ -143,7 +142,7 @@ TEST_CASE("release decays to silence") {
     const auto tail = std::span(out).subspan(releaseAt + seconds(1.0) - blockSize);
     CHECK(decibels(peak(tail)) < -90.0);
     CHECK(models::isSilent(sineKey(keyboard, a4)));
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("a note starts on its exact sample") {
@@ -155,7 +154,7 @@ TEST_CASE("a note starts on its exact sample") {
 
     CHECK(std::ranges::all_of(std::span(out).first(start), [](float s) { return s == 0.0F; }));
     CHECK(out[start + 2] != 0.0F);
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("re-striking a ringing key does not click") {
@@ -166,14 +165,14 @@ TEST_CASE("re-striking a ringing key does not click") {
 
     // A smooth sine of amplitude A changes by at most 2*pi*f/SR*A per sample. Allow twice that
     // for the attack glide; a click would be far bigger.
-    const double maxAmplitude = models::SineParams{}.gain;
+    const double maxAmplitude = models::SineConfig{}.gain;
     const double limit = 2.0 * 2.0 * std::numbers::pi * 440.0 / sampleRate * maxAmplitude;
     double maxStep = 0.0;
     for (std::size_t i = 1; i < out.size(); ++i) {
         maxStep = std::max(maxStep, static_cast<double>(std::abs(out[i] - out[i - 1])));
     }
     CHECK(maxStep < limit);
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("rendering is deterministic") {
@@ -192,6 +191,61 @@ TEST_CASE("the T60 coefficient closes 60 dB in the given time") {
     CHECK_THAT(remaining, WithinAbs(1e-3, 1e-9));
 }
 
-TEST_CASE("makeSineKeyboard rejects a non-positive sample rate") {
-    REQUIRE_THROWS_AS(models::makeSineKeyboard(0.0, blockSize), std::invalid_argument);
+// --- Configuration
+// --------------------------------------------------------------------------------
+
+TEST_CASE("the built-in piano configuration is valid") {
+    CHECK(models::validate(models::PianoConfig{}).errors.empty());
+}
+
+TEST_CASE("piano validation fixes every part and names the setting") {
+    models::PianoConfig config;
+    config.render.sampleRate = 0.0;
+    config.tuning.a4Hz = 1000.0;
+    config.sine.attackT60 = -0.1;
+
+    const auto result = models::validate(config);
+
+    REQUIRE(result.errors.size() == 3);
+    CHECK(result.errors[0].message.starts_with("render.sampleRate: 0 Hz is outside"));
+    CHECK(result.errors[1].message.starts_with("tuning.a4Hz: 1000 Hz is outside"));
+    CHECK(result.errors[2].message ==
+          "sine.attackT60: -0.1 s is outside 0.0005-1 s; using the default 0.005 s");
+    CHECK(result.config->render.sampleRate == ec::RenderConfig{}.sampleRate);
+    CHECK(result.config->tuning.a4Hz == ec::TuningConfig{}.a4Hz);
+    CHECK(result.config->sine.attackT60 == models::SineConfig{}.attackT60);
+}
+
+TEST_CASE("a fixed configuration still makes a working keyboard") {
+    models::PianoConfig config = models::testing::testConfig();
+    config.render.maxBlock = 0;
+    const auto result = models::validate(config);
+    REQUIRE(result.errors.size() == 1);
+
+    auto keyboard = models::makePianoKeyboard(result.config);
+    const std::array events{ec::noteOn(0, a4, 1.0F)};
+    const auto out = ec::renderOffline(keyboard, events, seconds(0.1));
+
+    CHECK(peak(out) > 0.1F);
+    CHECK(keyboard.diagnostics.total == 0);
+}
+
+TEST_CASE("the tuning reference changes the pitch") {
+    models::PianoConfig config = models::testing::testConfig();
+    config.tuning.a4Hz = 432.0;
+    auto keyboard = models::testing::makeTestKeyboard(config);
+    const std::array events{ec::noteOn(0, a4, 1.0F)};
+    const auto out = ec::renderOffline(keyboard, events, seconds(1.0));
+
+    CHECK_THAT(measureFrequency(std::span(out).subspan(seconds(0.01))), WithinAbs(432.0, 0.1));
+}
+
+TEST_CASE("the sine settings change the sound") {
+    models::PianoConfig config = models::testing::testConfig();
+    config.sine.gain = 0.5;
+    auto keyboard = models::testing::makeTestKeyboard(config);
+    const std::array events{ec::noteOn(0, a4, 1.0F)};
+    const auto out = ec::renderOffline(keyboard, events, seconds(0.2));
+
+    CHECK_THAT(peak(out), WithinAbs(0.5, 0.01));
 }

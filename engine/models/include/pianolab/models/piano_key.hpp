@@ -1,6 +1,9 @@
 #pragma once
 
+#include <pianolab/engine_core/config.hpp>
 #include <pianolab/engine_core/keyboard.hpp>
+#include <pianolab/engine_core/render_config.hpp>
+#include <pianolab/engine_core/tuning.hpp>
 #include <pianolab/models/sine_key.hpp>
 
 #include <cstddef>
@@ -30,9 +33,21 @@ using PianoKey = std::variant<SineKey>;
 /// The keyboard the backend plays.
 using PianoKeyboard = engine_core::Keyboard<PianoKey>;
 
-/// A keyboard of sine keys in equal temperament. Setup code: call before audio starts; throws on
-/// bad settings.
-[[nodiscard]] PianoKeyboard makeSineKeyboard(double sampleRate, std::size_t maxBlock,
-                                             const SineParams& params = {});
+/// The whole piano's configuration: everything needed to build a `PianoKeyboard`. The defaults
+/// are the built-in settings; user settings are merged over them before validation (step 0.3).
+struct PianoConfig {
+    engine_core::RenderConfig render;
+    engine_core::TuningConfig tuning;
+    SineConfig sine;
+};
+
+/// Validates the whole piano configuration. Always returns a usable one: every out-of-range
+/// value is replaced with its built-in default and reported as an `Error` naming the setting,
+/// e.g. "sine.attackT60: ...".
+[[nodiscard]] engine_core::Validated<PianoConfig> validate(const PianoConfig& config);
+
+/// A keyboard of sine keys in equal temperament, built from a validated configuration. Setup
+/// code: call before audio starts. Can't fail, because the configuration is already valid.
+[[nodiscard]] PianoKeyboard makePianoKeyboard(const engine_core::Valid<PianoConfig>& config);
 
 } // namespace pianolab::models

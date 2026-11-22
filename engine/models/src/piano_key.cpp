@@ -1,12 +1,16 @@
+#include <pianolab/engine_core/config.hpp>
+#include <pianolab/engine_core/error.hpp>
 #include <pianolab/engine_core/keyboard.hpp>
+#include <pianolab/engine_core/render_config.hpp>
 #include <pianolab/engine_core/tuning.hpp>
 #include <pianolab/models/piano_key.hpp>
 #include <pianolab/models/sine_key.hpp>
 
-#include <cstddef>
+#include <iterator>
 #include <span>
-#include <stdexcept>
+#include <utility>
 #include <variant>
+#include <vector>
 
 namespace pianolab::models {
 
@@ -51,12 +55,28 @@ bool isSilent(const PianoKey& key) noexcept {
     return dispatch<bool>(key, [](const auto& model) { return isSilent(model); }, true);
 }
 
-PianoKeyboard makeSineKeyboard(double sampleRate, std::size_t maxBlock, const SineParams& params) {
-    if (!(sampleRate > 0.0)) {
-        throw std::invalid_argument("makeSineKeyboard: sampleRate must be positive");
+engine_core::Validated<PianoConfig> validate(const PianoConfig& config) {
+    auto render = engine_core::validate(config.render, "render.");
+    auto tuning = engine_core::validate(config.tuning, "tuning.");
+    auto sine = validate(config.sine, "sine.");
+
+    std::vector<engine_core::Error> errors;
+    for (auto* part : {&render.errors, &tuning.errors, &sine.errors}) {
+        errors.insert(errors.end(), std::make_move_iterator(part->begin()),
+                      std::make_move_iterator(part->end()));
     }
-    return engine_core::makeKeyboard<PianoKey>(maxBlock, [&](int note) -> PianoKey {
-        return makeSineKey(engine_core::equalTemperament(note), params, sampleRate);
+    const PianoConfig checked{
+        .render = *render.config, .tuning = *tuning.config, .sine = *sine.config};
+    return {.config = engine_core::detail::makeValid(checked), .errors = std::move(errors)};
+}
+
+PianoKeyboard makePianoKeyboard(const engine_core::Valid<PianoConfig>& config) {
+    const auto render = engine_core::validPart(config, &PianoConfig::render);
+    const auto sine = engine_core::validPart(config, &PianoConfig::sine);
+    const double a4Hz = config->tuning.a4Hz;
+    const double sampleRate = render->sampleRate;
+    return engine_core::makeKeyboard<PianoKey>(render, [&](int note) -> PianoKey {
+        return makeSineKey(engine_core::equalTemperament(note, a4Hz), sine, sampleRate);
     });
 }
 

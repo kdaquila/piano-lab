@@ -1,3 +1,4 @@
+#include <pianolab/engine_core/diagnostics.hpp>
 #include <pianolab/engine_core/keyboard.hpp>
 
 #include <cmath>
@@ -12,7 +13,7 @@ std::size_t replaceNonFinite(std::span<float> out, Diagnostics& diagnostics) noe
         if (!std::isfinite(sample)) {
             sample = 0.0F;
             ++fixed;
-            record(diagnostics, Problem::NonFiniteSample);
+            record(diagnostics, "sample was NaN or infinite; replaced with silence");
         }
     }
     return fixed;

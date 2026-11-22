@@ -1,9 +1,18 @@
 #pragma once
 
+#include <pianolab/engine_core/config.hpp>
+#include <pianolab/engine_core/render_config.hpp>
+
+#include <cstddef>
 #include <span>
 
 /// Test helpers for engine-core.
 namespace pianolab::engine_core::testing {
+
+/// A validated render configuration with the given `maxBlock` and the default sample rate.
+inline Valid<RenderConfig> testRender(std::size_t maxBlock) {
+    return validate(RenderConfig{.maxBlock = maxBlock}).config;
+}
 
 /// A trivial key model for testing the keyboard on its own: outputs a constant `value` while
 /// held, and nothing otherwise.

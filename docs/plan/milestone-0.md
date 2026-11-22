@@ -72,16 +72,22 @@
 **Includes:**
 - The `KeyModel` concept (strike, release, render-add, is-silent), note events with sample offsets, the 88-key `Keyboard`, `Diagnostics`, offline render, equal-temperament tuning
 - The sine key model (`double` phase and amplitude, attack glide, exponential release, continuous phase) and `PianoKey`, the variant of all key models
-- The same headless tests as the prototype, plus tests for every recovery path
+- **Configuration types with validators:** `RenderConfig`, `TuningConfig`, `SineConfig` and the combined `PianoConfig`, each with a declared-once field table and a `validate` function; the `Error` type
+- The same headless tests as the prototype, plus tests for every recovery path and for validation, all driving the engine through a small config-based test harness
 
 **Carried-over decisions:** one fixed model per key, no voice stealing; sample-accurate events; `float` buffers with `double` model state; no allocation while rendering, enforced by a test.
 
 **Decisions:**
 - **Pragmatic functional style**, written up in [docs/coding-style.md](../coding-style.md): plain structs, free functions, immutable by default, mutable only on purpose, no inheritance, and no purist FP.
 - **Key models are a `std::variant`** (`models::PianoKey`), not a virtual interface. Each model is plain data plus free functions that take the key and return the new one (`strike`, `release`, `renderAdd`, `isSilent`). All 88 keys sit inline in a `std::array`, and a key's model can be swapped by assigning a new value.
-- **The keyboard is a template over a `KeyModel` concept.** The variant has to name every model, and models live above `engine-core`, so `engine-core` defines what a key model must provide (a C++20 concept) and a keyboard for any such type. `models` then defines `PianoKey` and `PianoKeyboard = Keyboard<PianoKey>`. This keeps `engine-core` independent of the models, and lets its tests use a trivial test key.
+- **The keyboard is a template over a `KeyModel` concept.** The variant has to name every model, and models live above `engine-core`, so `engine-core` defines what a key model must provide (a concept) and a keyboard for any such type. `models` then defines `PianoKey` and `PianoKeyboard = Keyboard<PianoKey>`. This keeps `engine-core` independent of the models, and lets its tests use a trivial test key.
 - **Dispatch never throws.** `std::visit` can throw if a variant is empty, so `PianoKey` uses a small non-throwing dispatch that falls back to leaving the key unchanged.
-- **The music never stops for an error** (coding-style rule 8). The engine recovers and records instead of asserting: oversized blocks are rendered in chunks, out-of-order events are moved forward, late events are applied at the block's end, off-keyboard notes are ignored, velocities are clamped, and NaN or infinite samples become silence. Each is counted in the keyboard's fixed-size `Diagnostics`. Tests check that diagnostics stay at zero in normal use, and test each recovery directly. Setup functions (`makeKeyboard`, `makeSineKeyboard`) throw on bad settings, for the backend to catch.
+- **The music never stops for an error** (coding-style rule 8). The engine recovers and records instead of asserting: oversized blocks are rendered in chunks, out-of-order events are moved forward, late events are applied at the block's end, off-keyboard notes are ignored, velocities are clamped, and NaN or infinite samples become silence. Each is recorded in the keyboard's fixed-size `Diagnostics` (a total plus the last message; messages are string literals, so recording never allocates). Tests check that diagnostics stay at zero in normal use, and test each recovery directly.
+- **Errors are values, and there is one error type.** `Error{message}`; no error enums or hierarchies yet. Fallible operations will return `std::expected<T, Error>` (from step 0.3, e.g. loading a user config file). Our code doesn't throw.
+- **Configuration: built-in defaults plus validators, declared once.** Each library defines plain config structs whose default values are the built-in settings (`RenderConfig` and `TuningConfig` in `engine-core`; `SineConfig` and the combined `PianoConfig` in `models`). Next to each struct, a table of `Field`s declares every setting once: name, member, valid range, unit and description. A generic checker uses the table, so `validate` *always* returns a usable `Valid<Config>`, replacing bad values (out of range, or NaN) with the built-in default and adding an `Error` like "sine.attackT60: -0.1 s is outside 0.0005-1 s; using the default 0.005 s". The same tables will drive user-file loading, the protocol and the UI later.
+- **Engine setup only accepts `Valid` configs**, so it can't fail: `makeKeyboard(Valid<RenderConfig>, …)` and `makePianoKeyboard(Valid<PianoConfig>)`. `Valid<T>` can only be created by validation (a private constructor); `validPart` hands out a valid part of a valid whole.
+- **Tests drive the engine through a small harness** (`models/tests/harness.hpp`): start from the built-in `PianoConfig`, override what the test needs, validate (failing the test if anything had to be fixed), and build the keyboard. These are the same entry points the backend will use.
+- **What stays a constant:** facts and definitions rather than choices, such as 88 keys, A0 = MIDI 21, A4 = MIDI 69, 12 semitones per octave, and "60 dB = a factor of 1000". They're named constants with doc comments.
 - **The no-allocation test counts instead of aborting.** It replaces the global `operator new`/`delete` in its own test binary and counts allocations during a checked region. Self-tests prove it catches ordinary and over-aligned allocations, and it was confirmed to fail when an allocation was planted in the sine model's render loop.
 
 **Acceptance checks (automated):**
@@ -101,6 +107,7 @@
 - Opening a MIDI input and turning note on/off into engine events, passed to the audio thread through a lock-free queue
 - Command-line options to list and choose devices and buffer size
 - **Logging:** a non-audio thread regularly picks up the engine's diagnostics and logs them (console and a log file). Setup failures (e.g. a device that won't open) are caught, logged, and fall back to a default instead of exiting.
+- **User configuration:** a file holding only the settings the user changed, merged over the built-in `PianoConfig` and then validated, using the field tables from 0.2. Loading returns `std::expected<…, Error>`, and every problem is logged rather than stopping the app.
 
 **Acceptance checks:**
 - Turning raw MIDI messages into engine events is unit-tested
@@ -112,6 +119,7 @@
 - A **stress test** (two threads hammering a queue; nothing lost, duplicated or reordered) runs from this step. ThreadSanitizer joins once Linux builds exist (it isn't available with MSVC).
 
 **Open questions:**
+- The user configuration file: its format (JSON with comments, TOML, …), where it lives, and whether 0.3 is split into "configuration" and "devices" steps.
 - ASIO in this step or later? (Needs the ASIO SDK at build time; it's now available under GPLv3 or Steinberg's license.)
 
 ## 0.4 Control server

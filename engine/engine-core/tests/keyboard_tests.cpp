@@ -10,13 +10,11 @@
 #include <array>
 #include <cstddef>
 #include <limits>
-#include <stdexcept>
 #include <vector>
 
 namespace {
 
 using pianolab::engine_core::Keyboard;
-using pianolab::engine_core::Problem;
 using pianolab::engine_core::TimedEvent;
 using pianolab::engine_core::testing::ConstantKey;
 namespace ec = pianolab::engine_core;
@@ -27,7 +25,8 @@ constexpr int e4 = 64;
 
 /// A keyboard of constant test keys, all released.
 Keyboard<ConstantKey> makeTestKeyboard() {
-    return ec::makeKeyboard<ConstantKey>(maxBlock, [](int /*note*/) { return ConstantKey{}; });
+    return ec::makeKeyboard<ConstantKey>(pianolab::engine_core::testing::testRender(maxBlock),
+                                         [](int /*note*/) { return ConstantKey{}; });
 }
 
 /// True when every sample equals `value` exactly.
@@ -45,11 +44,6 @@ TEST_CASE("key range covers A0 to C8") {
     STATIC_REQUIRE(!ec::keyIndex(109).has_value());
 }
 
-TEST_CASE("makeKeyboard rejects a zero maxBlock") {
-    REQUIRE_THROWS_AS(ec::makeKeyboard<ConstantKey>(0, [](int /*note*/) { return ConstantKey{}; }),
-                      std::invalid_argument);
-}
-
 TEST_CASE("events land on their exact sample") {
     auto keyboard = makeTestKeyboard();
     std::array<float, maxBlock> out{};
@@ -60,7 +54,7 @@ TEST_CASE("events land on their exact sample") {
     CHECK(allEqual(std::span(out).first(10), 0.0F));
     CHECK(allEqual(std::span(out).subspan(10, 30), 1.0F));
     CHECK(allEqual(std::span(out).subspan(40), 0.0F));
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("keys sum into one buffer") {
@@ -71,7 +65,7 @@ TEST_CASE("keys sum into one buffer") {
     ec::render(keyboard, out, events);
 
     CHECK(allEqual(out, 2.0F));
-    CHECK(ec::total(keyboard.diagnostics) == 0);
+    CHECK(keyboard.diagnostics.total == 0);
 }
 
 TEST_CASE("render overwrites what was in the buffer") {
@@ -94,8 +88,8 @@ TEST_CASE("notes off the keyboard are ignored and recorded") {
     ec::render(keyboard, out, events);
 
     CHECK(allEqual(out, 0.0F));
-    CHECK(ec::count(keyboard.diagnostics, Problem::NoteOutsideKeyboard) == 3);
-    CHECK(keyboard.diagnostics.last == Problem::NoteOutsideKeyboard);
+    CHECK(keyboard.diagnostics.total == 3);
+    CHECK(keyboard.diagnostics.last.contains("note outside"));
 }
 
 TEST_CASE("an oversized block is rendered in chunks and recorded") {
@@ -107,8 +101,8 @@ TEST_CASE("an oversized block is rendered in chunks and recorded") {
 
     CHECK(allEqual(std::span(out).first(100), 0.0F));
     CHECK(allEqual(std::span(out).subspan(100), 1.0F));
-    CHECK(ec::count(keyboard.diagnostics, Problem::OversizedBlock) == 1);
-    CHECK(ec::total(keyboard.diagnostics) == 1);
+    CHECK(keyboard.diagnostics.last.contains("maxBlock"));
+    CHECK(keyboard.diagnostics.total == 1);
 }
 
 TEST_CASE("an out-of-order event is moved forward and recorded") {
@@ -120,7 +114,8 @@ TEST_CASE("an out-of-order event is moved forward and recorded") {
     ec::render(keyboard, out, events);
 
     CHECK(allEqual(out, 0.0F));
-    CHECK(ec::count(keyboard.diagnostics, Problem::EventOutOfOrder) == 1);
+    CHECK(keyboard.diagnostics.total == 1);
+    CHECK(keyboard.diagnostics.last.contains("before the previous"));
 }
 
 TEST_CASE("an event past the block is applied at its end and recorded") {
@@ -130,7 +125,8 @@ TEST_CASE("an event past the block is applied at its end and recorded") {
 
     ec::render(keyboard, out, events);
     CHECK(allEqual(out, 0.0F));
-    CHECK(ec::count(keyboard.diagnostics, Problem::EventPastBlock) == 1);
+    CHECK(keyboard.diagnostics.total == 1);
+    CHECK(keyboard.diagnostics.last.contains("past the end"));
 
     // The note was still struck, so it sounds from the next block.
     ec::render(keyboard, out, std::span<const TimedEvent>{});
@@ -145,20 +141,23 @@ TEST_CASE("out-of-range velocities are clamped and recorded") {
 
     ec::render(keyboard, out, events);
 
-    CHECK(ec::count(keyboard.diagnostics, Problem::VelocityOutOfRange) == 3);
+    CHECK(keyboard.diagnostics.total == 3);
+    CHECK(keyboard.diagnostics.last.contains("velocity"));
 }
 
 TEST_CASE("non-finite samples become silence and are recorded") {
-    auto keyboard = ec::makeKeyboard<ConstantKey>(maxBlock, [](int note) {
-        return ConstantKey{.held = false,
-                           .value =
-                               note == middleC ? std::numeric_limits<float>::infinity() : 1.0F};
-    });
+    auto keyboard = ec::makeKeyboard<ConstantKey>(
+        pianolab::engine_core::testing::testRender(maxBlock), [](int note) {
+            return ConstantKey{.held = false,
+                               .value =
+                                   note == middleC ? std::numeric_limits<float>::infinity() : 1.0F};
+        });
     std::array<float, 4> out{};
     const std::array events{ec::noteOn(0, middleC, 1.0F)};
 
     ec::render(keyboard, out, events);
 
     CHECK(allEqual(out, 0.0F));
-    CHECK(ec::count(keyboard.diagnostics, Problem::NonFiniteSample) == 4);
+    CHECK(keyboard.diagnostics.total == 4);
+    CHECK(keyboard.diagnostics.last.contains("NaN or infinite"));
 }

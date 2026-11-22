@@ -25,7 +25,7 @@ renderOffline(Keyboard<Key>& keyboard, std::span<const TimedEvent> events, std::
     std::vector<TimedEvent> sorted(events.begin(), events.end());
     const auto byTime = [](const TimedEvent& a, const TimedEvent& b) { return a.at < b.at; };
     if (!std::ranges::is_sorted(sorted, byTime)) {
-        record(keyboard.diagnostics, Problem::EventOutOfOrder);
+        record(keyboard.diagnostics, "events were not sorted by time; sorted them");
         std::ranges::stable_sort(sorted, byTime);
     }
 

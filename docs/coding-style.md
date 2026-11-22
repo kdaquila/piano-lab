@@ -5,7 +5,7 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 ## The rules
 
 ### 1. Data is plain structs
-- Use aggregates: public fields, no getters or setters, default member values, and designated initializers to build them (`SineParams{.gain = 0.25}`).
+- Use aggregates: public fields, no getters or setters, default member values, and designated initializers to build them (`SineConfig{.gain = 0.25}`).
 - A `class` with private state is the exception. Use one only when it genuinely protects an invariant or owns a resource (RAII). It should be rare.
 
 ### 2. Behaviour is free functions
@@ -58,14 +58,23 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 ## Example
 From `engine/models/include/pianolab/models/sine_key.hpp`:
 ```cpp
-// Plain data: configuration, coefficients derived once, running state.
-struct SineParams { double gain = 0.25; double attackT60 = 0.005; double releaseT60 = 0.25; };
-struct SineCoeffs { double phaseStep; double gain; double attackCoeff; double releaseCoeff; };
+// Plain data: configuration (defaults = built-in settings), derived coefficients, running state.
+struct SineConfig { double gain = 0.25; double attackT60 = 0.005; double releaseT60 = 0.25; /*...*/ };
+struct SineCoeffs { double phaseStep; double gain; double attackCoeff; double releaseCoeff; /*...*/ };
 struct SineState  { double phase; double amplitude; double target; double coeff; bool released; };
 struct SineKey    { SineCoeffs coeffs; SineState state; };
 
-// Setup: computes the coefficients once; they never change afterwards.
-[[nodiscard]] SineKey makeSineKey(double frequency, const SineParams& params, double sampleRate);
+// Each setting declared once: name, member, range, unit, description.
+inline constexpr std::tuple sineConfigFields{
+    Field<SineConfig, double>{.name = "gain", .member = &SineConfig::gain, .min = 0.0, .max = 1.0, /*...*/},
+    /*...*/
+};
+
+// Errors as values: always a usable config, plus an Error for each value that was replaced.
+[[nodiscard]] Validated<SineConfig> validate(const SineConfig& config, std::string_view prefix = "");
+
+// Setup: only accepts a validated config, so it can't fail.
+[[nodiscard]] SineKey makeSineKey(double frequency, const Valid<SineConfig>& config, double sampleRate) noexcept;
 
 // Pure: an event takes the old key and returns the new one.
 [[nodiscard]] SineKey strike(SineKey key, float velocity) noexcept;
