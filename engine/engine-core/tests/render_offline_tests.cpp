@@ -77,3 +77,36 @@ TEST_CASE("renderOffline sorts unsorted events and records it") {
     CHECK(keyboard.diagnostics.total == 1);
     CHECK(keyboard.diagnostics.last.contains("not sorted"));
 }
+
+TEST_CASE("renderUntilSilent stops at the first block after the piano falls silent") {
+    auto keyboard = makeTestKeyboard();
+    const std::array events{ec::noteOn(5, middleC, 1.0F), ec::noteOff(41, middleC)};
+
+    const auto result = ec::renderUntilSilent(keyboard, events, 1'000);
+
+    // The release at 41 is in the block 32-47; the key is silent after it.
+    REQUIRE(result.samples.size() == 48);
+    CHECK(countEqual(result.samples, 1.0F) == 36);
+    CHECK_FALSE(result.stoppedAtCap);
+    CHECK(keyboard.diagnostics.total == 0);
+}
+
+TEST_CASE("renderUntilSilent stops a note that never ends at the cap") {
+    auto keyboard = makeTestKeyboard();
+    const std::array events{ec::noteOn(0, middleC, 1.0F)};
+
+    const auto result = ec::renderUntilSilent(keyboard, events, 40);
+
+    // Whole blocks of 16, stopping at the first block start at or past 0 + 40.
+    CHECK(result.samples.size() == 48);
+    CHECK(result.stoppedAtCap);
+}
+
+TEST_CASE("renderUntilSilent renders nothing for no events") {
+    auto keyboard = makeTestKeyboard();
+
+    const auto result = ec::renderUntilSilent(keyboard, {}, 1'000);
+
+    CHECK(result.samples.empty());
+    CHECK_FALSE(result.stoppedAtCap);
+}

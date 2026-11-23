@@ -4,6 +4,7 @@
 add_library(pianolab_engine_core
     src/diagnostics.cpp
     src/keyboard.cpp
+    src/performance.cpp
     src/render_config.cpp
     src/tuning.cpp
 )
@@ -16,6 +17,7 @@ pianolab_add_tests(pianolab_engine_core_tests
         tests/config_tests.cpp
         tests/diagnostics_tests.cpp
         tests/keyboard_tests.cpp
+        tests/performance_tests.cpp
         tests/render_offline_tests.cpp
         tests/tuning_tests.cpp
     LINK pianolab::engine_core

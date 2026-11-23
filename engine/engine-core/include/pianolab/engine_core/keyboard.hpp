@@ -99,6 +99,11 @@ template <KeyModel K> void apply(Keyboard<K>& keyboard, const NoteEvent& event) 
     }
 }
 
+/// True when every key is silent, so rendering more would only add zeros.
+template <KeyModel K> [[nodiscard]] bool allSilent(const Keyboard<K>& keyboard) noexcept {
+    return std::ranges::all_of(keyboard.keys, [](const K& key) { return isSilent(key); });
+}
+
 /// Adds every sounding key into `out`, handing models at most `maxBlock` samples at a time.
 template <KeyModel K> void renderSpan(Keyboard<K>& keyboard, std::span<float> out) noexcept {
     // Keyboard is a plain struct, so guard against a hand-built one with maxBlock 0.
