@@ -15,7 +15,7 @@ A physically modelled piano. The code is written by AI agents; the owner makes t
 `.\tools\check.ps1` (PowerShell, Windows) formats, builds, tests, lints and runs AddressSanitizer. It must pass before work is handed over.
 
 ## Hearing the piano
-Agents can't listen, so render instead: `piano-lab-render` turns a MIDI or MusicXML file into a WAV, deterministically. See [docs/rendering.md](docs/rendering.md).
+Agents can't listen, so render instead: `piano-lab render` turns a MIDI or MusicXML file into a WAV, deterministically. See [docs/rendering.md](docs/rendering.md).
 
 ## Where agent instructions live
 - This file stays a short index. Topic rules live in `.claude/rules/`, one topic per file.

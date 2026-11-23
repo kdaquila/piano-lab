@@ -2,6 +2,8 @@
 # later the web server and control protocol. JUCE is only ever used from here.
 
 add_subdirectory(juce)
+add_subdirectory(logging)
 add_subdirectory(music-io)
-add_subdirectory(render-cli)
+add_subdirectory(server)
+add_subdirectory(render)
 add_subdirectory(app)
