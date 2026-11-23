@@ -37,6 +37,18 @@ std::optional<double> parseSampleRate(std::string_view text) {
     return static_cast<double>(value);
 }
 
+/// The path named by UTF-8 `text`. (Constructing a path from `char` text would read it in the
+/// system's code page on Windows, losing characters outside it.)
+std::filesystem::path pathFromUtf8(std::string_view text) {
+    return {std::u8string(text.begin(), text.end())};
+}
+
+/// True if `a` and `b` name the same existing file, however they're spelled.
+bool sameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code error; // e.g. one of them doesn't exist yet: then they can't be the same
+    return std::filesystem::equivalent(a, b, error) && !error;
+}
+
 /// Adds `more` to the end of `warnings`.
 void append(std::vector<Error>& warnings, std::vector<Error> more) {
     warnings.insert(warnings.end(), std::make_move_iterator(more.begin()),
@@ -56,7 +68,7 @@ std::expected<Options, Error> parseArguments(std::span<const std::string_view> a
             if (!hasValue) {
                 return std::unexpected(Error{std::format("{} needs a file name", argument)});
             }
-            options.output = arguments[++index];
+            options.output = pathFromUtf8(arguments[++index]);
         } else if (argument == "--sample-rate") {
             if (!hasValue) {
                 return std::unexpected(Error{"--sample-rate needs a value in hertz"});
@@ -73,7 +85,7 @@ std::expected<Options, Error> parseArguments(std::span<const std::string_view> a
             return std::unexpected(Error{std::format(
                 "only one input file can be rendered at a time; got '{}' too", argument)});
         } else {
-            options.input = argument;
+            options.input = pathFromUtf8(argument);
         }
     }
 
@@ -93,6 +105,9 @@ std::expected<Options, Error> parseArguments(std::span<const std::string_view> a
 }
 
 std::expected<Summary, Error> renderFile(const Options& options) {
+    if (options.output == options.input || sameFile(options.output, options.input)) {
+        return std::unexpected(Error{"the output file would overwrite the input"});
+    }
     auto reading = music_io::readMusicFile(options.input);
     if (!reading) {
         return std::unexpected(reading.error());
@@ -113,6 +128,21 @@ std::expected<Summary, Error> renderFile(const Options& options) {
     auto keyboard = models::makePianoKeyboard(piano.config);
     const auto render = engine_core::validPart(piano.config, &models::PianoConfig::render);
     const double sampleRate = render->sampleRate;
+
+    // Refuse up front, before allocating, a render that might not fit in one WAV file.
+    const double longest =
+        (engine_core::lastEventSeconds(performance.config) + maxTailSeconds) * sampleRate +
+        static_cast<double>(render->maxBlock);
+    if (longest > static_cast<double>(music_io::maxWavSamples)) {
+        return std::unexpected(Error{std::format(
+            "the performance is too long for one WAV file at {} Hz (its last event is at {} s; "
+            "the limit is about {} s including the release); try a lower --sample-rate",
+            engine_core::formatValue(sampleRate),
+            engine_core::formatValue(engine_core::lastEventSeconds(performance.config)),
+            engine_core::formatValue(
+                std::floor(static_cast<double>(music_io::maxWavSamples) / sampleRate)))});
+    }
+
     const auto events = engine_core::toTimedEvents(performance.config, render);
     const auto maxTail = static_cast<std::size_t>(std::llround(maxTailSeconds * sampleRate));
     const auto result = engine_core::renderUntilSilent(keyboard, events, maxTail);

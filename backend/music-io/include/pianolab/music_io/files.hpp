@@ -19,8 +19,9 @@ namespace pianolab::music_io {
 [[nodiscard]] std::expected<std::vector<std::byte>, engine_core::Error>
 readBytes(const std::filesystem::path& path);
 
-/// Writes `bytes` to `path`, replacing the file if it exists. Returns an `Error` naming the file
-/// if it can't be written.
+/// Writes `bytes` to `path`, replacing the file if it exists. Writes a temporary `.partial` file
+/// first and renames it into place, so a failed write leaves no half-written file and an
+/// existing file untouched. Returns an `Error` naming the file if it can't be written.
 [[nodiscard]] std::expected<void, engine_core::Error> writeBytes(const std::filesystem::path& path,
                                                                  std::span<const std::byte> bytes);
 

@@ -57,8 +57,9 @@ struct Summary {
 /// Reads the input file, renders it with the built-in piano until it falls silent (at most
 /// `maxTailSeconds` after the last event), and writes the WAV. Problems it can work around
 /// (unsupported notation, invalid events or settings, a render cut off at the cap) become
-/// warnings. Returns an `Error`, having written nothing, when the input can't be read or the
-/// output can't be written.
+/// warnings. Returns an `Error`, having written nothing, when the output names the input file
+/// (however it's spelled), the input can't be read, the render would be too long for one WAV
+/// file (checked before rendering), or the output can't be written.
 [[nodiscard]] std::expected<Summary, engine_core::Error> renderFile(const Options& options);
 
 } // namespace pianolab::render

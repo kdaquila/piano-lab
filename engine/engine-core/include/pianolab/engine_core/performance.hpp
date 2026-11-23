@@ -25,12 +25,15 @@ struct Performance {
     std::vector<PerformanceEvent> events;
 };
 
-/// The latest time an event may happen at, in seconds (six hours). Anything later is a broken
-/// file, not music.
-inline constexpr double maxPerformanceSeconds = 6.0 * 60.0 * 60.0;
+/// The latest time an event may happen at, in seconds (two hours, longer than nearly any piano
+/// piece). A later event is almost certainly a broken file, and would make an offline render
+/// allocate gigabytes.
+inline constexpr double maxPerformanceSeconds = 2.0 * 60.0 * 60.0;
 
-/// Validates a performance. Always returns a playable one, sorted by time with releases before
-/// presses at the same instant (so a repeated note is re-struck, not cut off). Events with a
+/// Validates a performance. Always returns a playable one, sorted by time. At the same instant,
+/// a release that ends a note held from before comes ahead of the presses (so a repeated note is
+/// re-struck, not cut off), and a release of a note pressed at that same instant comes after its
+/// press (so a zero-length note sounds briefly instead of sticking). Events with a
 /// NaN, negative or too-late time, presses off the keyboard and presses with a NaN velocity are
 /// dropped; velocities outside 0-1 are clamped. Each fix is reported as an `Error`. Releases
 /// of notes off the keyboard are dropped silently, since their press was already reported.

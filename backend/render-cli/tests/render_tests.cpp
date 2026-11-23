@@ -207,3 +207,68 @@ TEST_CASE("an unreadable input or unwritable output is an error, and nothing is 
     REQUIRE_FALSE(unwritable);
     CHECK(unwritable.error().message.starts_with("can't write"));
 }
+
+TEST_CASE("an output that names the input another way is refused, and the input is kept") {
+    const auto folder = scratchFolder("overwrite");
+    const std::string xml = scoreXml();
+    writeText(folder / "a4.musicxml", xml);
+
+    const auto summary = render::renderFile({.input = folder / "a4.musicxml",
+                                             .output = folder / "." / "a4.musicxml",
+                                             .sampleRate = std::nullopt,
+                                             .help = false});
+
+    REQUIRE_FALSE(summary);
+    CHECK(summary.error().message == "the output file would overwrite the input");
+    const auto kept = mio::readBytes(folder / "a4.musicxml");
+    REQUIRE(kept);
+    CHECK(kept->size() == xml.size());
+}
+
+TEST_CASE("file names in any script work, given as UTF-8 arguments") {
+    const auto folder = scratchFolder("unicode");
+    const fs::path input = folder / fs::path(u8"月光 sonata.musicxml");
+    writeText(input, scoreXml());
+    const std::string inputUtf8 = mio::displayPath(input);
+    const std::string outputUtf8 = mio::displayPath(folder / fs::path(u8"月光.wav"));
+
+    const auto options = render::parseArguments(args({inputUtf8, "-o", outputUtf8}));
+    REQUIRE(options);
+    CHECK(options->input == input);
+
+    const auto summary = render::renderFile(*options);
+
+    REQUIRE(summary);
+    CHECK(fs::exists(folder / fs::path(u8"月光.wav")));
+}
+
+TEST_CASE("rendering over an existing WAV replaces it and leaves no temporary file") {
+    const auto folder = scratchFolder("replace");
+    writeText(folder / "a4.musicxml", scoreXml());
+    writeText(folder / "a4.wav", "old");
+    const render::Options options{.input = folder / "a4.musicxml",
+                                  .output = folder / "a4.wav",
+                                  .sampleRate = std::nullopt,
+                                  .help = false};
+
+    REQUIRE(render::renderFile(options));
+
+    CHECK_FALSE(readWav(folder / "a4.wav").empty());
+    CHECK_FALSE(fs::exists(folder / "a4.wav.partial"));
+}
+
+TEST_CASE("a performance too long for one WAV file is refused before rendering") {
+    const auto folder = scratchFolder("too-long");
+    // At 384 kHz one WAV holds about 46 minutes. At 0.015 quarter notes per minute, the one
+    // quarter note lasts 4000 s (67 minutes): within the 2-hour limit, but too long for a WAV.
+    writeText(folder / "long.musicxml", scoreXml(R"(<sound tempo="0.015"/>)"));
+
+    const auto summary = render::renderFile({.input = folder / "long.musicxml",
+                                             .output = folder / "long.wav",
+                                             .sampleRate = 384'000.0,
+                                             .help = false});
+
+    REQUIRE_FALSE(summary);
+    CHECK(summary.error().message.starts_with("the performance is too long for one WAV file"));
+    CHECK_FALSE(fs::exists(folder / "long.wav"));
+}

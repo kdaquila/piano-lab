@@ -55,7 +55,7 @@ That opens the door to things we'd never build ourselves:
 
 | Part | Choice | Why |
 |---|---|---|
-| Engine | **Standard C++23**, no dependencies | Fast to build and test, portable to anything (render CLI, plugin, other platforms, a future Python package), and cleanly MIT |
+| Engine | **Standard C++23**, no dependencies | Fast to build and test, portable to anything (offline rendering, plugin, other platforms, a future Python package), and cleanly MIT |
 | Backend | **C++ with JUCE 9** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
 | Web server | **cpp-httplib** (MIT): HTTP + WebSocket, single header | JUCE has no web server. Simplest to integrate; its thread-per-connection model is fine for a handful of clients. CivetWeb is the fallback. |
 | Protocol | **JSON over WebSocket**, with **nlohmann/json** (MIT) | Human-readable public API for frontends, scripts and AI tools; typed struct mapping and clear errors for bad input |

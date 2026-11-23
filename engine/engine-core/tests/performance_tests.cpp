@@ -60,7 +60,7 @@ TEST_CASE("events with impossible times are dropped and reported") {
 
     CHECK(validated.config->events.size() == 1);
     REQUIRE(validated.errors.size() == 3);
-    CHECK(validated.errors[0].message == "event 1: time -1 s is outside 0-21600 s; dropped");
+    CHECK(validated.errors[0].message == "event 1: time -1 s is outside 0-7200 s; dropped");
 }
 
 TEST_CASE("presses off the keyboard are dropped and reported; their releases silently") {
@@ -104,4 +104,32 @@ TEST_CASE("an empty performance is valid and lasts no time") {
 
     CHECK(validated.errors.empty());
     CHECK(ec::lastEventSeconds(validated.config) == 0.0);
+}
+
+TEST_CASE("a zero-length note is pressed, then released, instead of sticking") {
+    // The release is listed first, as some MIDI files do for same-tick notes.
+    const ec::Performance performance{{lift(1.0, middleC), press(1.0, middleC, 0.5F)}};
+
+    const auto validated = ec::validate(performance);
+
+    REQUIRE(validated.config->events.size() == 2);
+    CHECK(std::holds_alternative<ec::NoteOn>(validated.config->events[0].event));
+    CHECK(std::holds_alternative<ec::NoteOff>(validated.config->events[1].event));
+}
+
+TEST_CASE("a repeated note with a zero-length note in between keeps every release in place") {
+    // C4 held from 0, re-struck at 1 as a zero-length note, then a long note from 1 to 2.
+    const ec::Performance performance{{press(0.0, middleC, 0.5F), press(1.0, middleC, 0.5F),
+                                       lift(1.0, middleC), lift(1.0, middleC),
+                                       press(1.0, middleC, 0.5F), lift(2.0, middleC)}};
+
+    const auto validated = ec::validate(performance);
+
+    // At 1 s: the release of the held note, then the presses, then the zero-length release.
+    const auto& events = validated.config->events;
+    REQUIRE(events.size() == 6);
+    CHECK(std::holds_alternative<ec::NoteOff>(events[1].event));
+    CHECK(std::holds_alternative<ec::NoteOn>(events[2].event));
+    CHECK(std::holds_alternative<ec::NoteOn>(events[3].event));
+    CHECK(std::holds_alternative<ec::NoteOff>(events[4].event));
 }

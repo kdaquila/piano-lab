@@ -4,21 +4,20 @@
 #include <cstddef>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
-/// Entry point of `piano-lab-render`. Exit code 0: a WAV was written (warnings on stderr);
-/// 1: nothing was written.
-int main(int argc, char** argv) {
-    try {
-        const std::span<char*> raw(argv, static_cast<std::size_t>(argc));
-        const auto afterProgramName = raw.subspan(raw.empty() ? 0 : 1);
-        const std::vector<std::string_view> arguments(afterProgramName.begin(),
-                                                      afterProgramName.end());
+namespace {
 
+/// Runs the command on its arguments (UTF-8, without the program name) and returns the exit
+/// code: 0 when a WAV was written (warnings on stderr), 1 when nothing was written.
+int run(std::span<const std::string_view> arguments) {
+    try {
         const auto options = pianolab::render::parseArguments(arguments);
         if (!options) {
             std::cerr << "error: " << options.error().message << "\n\n" << pianolab::render::usage;
@@ -51,3 +50,45 @@ int main(int argc, char** argv) {
     }
     return 1;
 }
+
+/// The program's arguments after its name, converted to UTF-8 text.
+template <typename C> std::vector<std::string> utf8Arguments(int argc, C** argv) {
+    std::vector<std::string> arguments;
+    for (const C* argument :
+         std::span(argv, static_cast<std::size_t>(argc)).subspan(argc > 0 ? 1 : 0)) {
+        const std::u8string text = std::filesystem::path(argument).u8string();
+        arguments.emplace_back(text.begin(), text.end());
+    }
+    return arguments;
+}
+
+/// Runs the command on arguments already converted to UTF-8.
+int runUtf8(const std::vector<std::string>& arguments) {
+    const std::vector<std::string_view> views(arguments.begin(), arguments.end());
+    return run(views);
+}
+
+} // namespace
+
+#ifdef _WIN32
+/// Entry point on Windows: `wmain` receives the arguments as UTF-16, so file names with any
+/// characters arrive intact (plain `main` would get them in the system's code page).
+int wmain(int argc, wchar_t** argv) {
+    try {
+        return runUtf8(utf8Arguments(argc, argv));
+    } catch (...) {
+        std::fputs("error: couldn't read the command line\n", stderr);
+        return 1;
+    }
+}
+#else
+/// Entry point: the arguments arrive as UTF-8 on Linux and macOS.
+int main(int argc, char** argv) {
+    try {
+        return runUtf8(utf8Arguments(argc, argv));
+    } catch (...) {
+        std::fputs("error: couldn't read the command line\n", stderr);
+        return 1;
+    }
+}
+#endif

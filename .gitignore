@@ -20,6 +20,7 @@ CMakeUserPresets.json
 
 # Rendered audio (piano-lab-render output); renders are reproducible, so never committed
 *.wav
+*.wav.partial
 
 # Crash dumps
 *.dmp

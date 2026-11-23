@@ -327,14 +327,24 @@ std::optional<int> readPitch(const XmlElement& pitch, const Part& part, Score& s
            static_cast<int>(semitones);
 }
 
-/// Reports the unsupported notations (`<notations>`) attached to a note.
-void reportNotations(const XmlElement& note, const Part& part, Score& score) {
+/// Reads the `<notations>` attached to a note that starts at `start`: a dynamic level there
+/// (e.g. `<dynamics><ff/></dynamics>`) sets the part's level from this note on, like a dynamic
+/// marking; anything unsupported is reported.
+void readNotations(const XmlElement& note, double start, Part& part, Score& score) {
     for (const auto* notations : note.getChildIterator()) {
         if (!notations->hasTagName("notations")) {
             continue;
         }
         for (const auto* item : notations->getChildIterator()) {
-            if (item->hasTagName("fermata")) {
+            if (item->hasTagName("dynamics")) {
+                for (const auto* mark : item->getChildIterator()) {
+                    if (const auto velocity = markingVelocity(mark->getTagName().toStdString())) {
+                        part.dynamics.push_back({.at = start, .value = *velocity});
+                    } else {
+                        report(score, part, accentDynamics);
+                    }
+                }
+            } else if (item->hasTagName("fermata")) {
                 report(score, part, fermatas);
             } else if (item->hasTagName("ornaments")) {
                 report(score, part, ornaments);
@@ -396,7 +406,7 @@ void readNote(const XmlElement& element, Part& part, Score& score) {
         report(score, part, noDuration);
         return;
     }
-    reportNotations(element, part, score);
+    readNotations(element, start, part, score);
 
     const bool tieStart = hasTie(element, "start");
     if (hasTie(element, "stop")) {

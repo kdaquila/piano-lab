@@ -304,3 +304,18 @@ TEST_CASE("data that isn't a zip is not an .mxl file") {
     REQUIRE_FALSE(reading);
     CHECK(reading.error().message == "not a compressed MusicXML (.mxl) file");
 }
+
+TEST_CASE("a dynamic inside a note's notations sets the level from that note on") {
+    const auto reading = read(score(
+        measure(1, note("C", 4, 1) + note("D", 4, 1, "") +
+                       "<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration>"
+                       "<notations><dynamics><ff/></dynamics></notations></note>" +
+                       note("F", 4, 1))));
+
+    const auto notes = played(reading);
+    REQUIRE(notes.size() == 4);
+    CHECK(reading.warnings.empty());
+    CHECK_THAT(notes[1].velocity, WithinAbs(mfVelocity, 1e-6));
+    CHECK_THAT(notes[2].velocity, WithinAbs(112.0 / 127.0, 1e-6));
+    CHECK_THAT(notes[3].velocity, WithinAbs(112.0 / 127.0, 1e-6));
+}

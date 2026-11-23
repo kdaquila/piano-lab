@@ -10,8 +10,9 @@ Build first (`cmake --build --preset dev`, after `. .\tools\dev-shell.ps1`), the
 - **Input:** a MIDI file (`.mid`, `.midi`) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`).
 - **Output:** a 32-bit float, mono WAV. By default it's the input's path with `.wav`, at 48 kHz.
 - **Length:** the render runs until the piano falls silent after the last note, so release tails are included. It stops 30 s after the last event at most, with a warning (usually a note that's never released).
-- **Reports:** everything skipped or fixed goes to stderr, one `warning:` line each, and a summary goes to stdout. The exit code is **0 when a WAV was written** (even with warnings) and **1 when nothing could be written** (bad arguments, an unreadable input, an unwritable output).
+- **Reports:** everything skipped or fixed goes to stderr, one `warning:` line each, and a summary goes to stdout. The exit code is **0 when a WAV was written** (even with warnings) and **1 when nothing could be written** (bad arguments, an unreadable input, an unwritable output, an output that names the input, or a render too long for one WAV file: about 6 hours at 48 kHz). A failed write never leaves a half-written file behind.
 - **Deterministic:** the same input always gives a byte-identical file, so renders can be compared exactly.
+- **Any file name works**, including non-Latin ones. Events later than two hours into a piece are treated as a broken file: dropped, with a warning.
 
 WAV files are git-ignored; don't commit renders.
 

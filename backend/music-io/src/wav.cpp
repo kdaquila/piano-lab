@@ -18,6 +18,10 @@ using engine_core::Error;
 
 std::expected<std::vector<std::byte>, Error> encodeWav(std::span<const float> samples,
                                                        double sampleRate) {
+    if (samples.size() > maxWavSamples) {
+        return std::unexpected(
+            Error{"too many samples for one WAV file (it must stay under 4 GiB)"});
+    }
     juce::MemoryBlock block;
     {
         std::unique_ptr<juce::OutputStream> stream =

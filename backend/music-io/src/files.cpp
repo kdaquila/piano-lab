@@ -67,12 +67,26 @@ std::expected<std::vector<std::byte>, Error> readBytes(const std::filesystem::pa
 
 std::expected<void, Error> writeBytes(const std::filesystem::path& path,
                                       std::span<const std::byte> bytes) {
-    std::ofstream file(path, std::ios::binary); // output mode truncates an existing file
-    file.write(reinterpret_cast<const char*>(bytes.data()),
-               static_cast<std::streamsize>(bytes.size()));
-    file.close();
-    if (!file) {
-        return std::unexpected(Error{std::format("can't write {}", displayPath(path))});
+    // Write a temporary file next to the destination, then rename it into place, so a failed
+    // write never leaves a half-written file or destroys an existing one.
+    std::filesystem::path partial = path;
+    partial += ".partial";
+    std::error_code error;
+    {
+        std::ofstream file(partial, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        file.close();
+        if (!file) {
+            std::filesystem::remove(partial, error);
+            return std::unexpected(Error{std::format("can't write {}", displayPath(path))});
+        }
+    }
+    std::filesystem::rename(partial, path, error);
+    if (error) {
+        const std::string reason = error.message();
+        std::filesystem::remove(partial, error);
+        return std::unexpected(Error{std::format("can't write {}: {}", displayPath(path), reason)});
     }
     return {};
 }
