@@ -8,7 +8,9 @@ add_subdirectory(rt)
 add_subdirectory(models)
 add_subdirectory(calibration)
 
-# Each engine target and the only targets it may link (target=allowed,allowed). Test executables
+# Each engine target and the only targets it may link (target=allowed,allowed). Header-only
+# third-party code with only standard includes (rigtorp/SPSCQueue in rt) is included, not linked,
+# so it doesn't appear here. Test executables
 # (*_tests) may link any engine library plus Catch2. A new engine target must be added here.
 pianolab_engine_rules(
     DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

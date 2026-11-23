@@ -1,9 +1,8 @@
 // The real-time rule: rendering must never allocate memory.
 //
-// This test binary replaces the global operator new/delete with versions that count allocations
-// while a check is running. It's its own executable because the replacement applies to the
-// whole program. Counting (instead of aborting) lets the first tests prove the checker really
-// catches allocations, so a passing "never allocates" test means something.
+// This test binary includes count_allocations.cpp, which replaces the global operator new/delete
+// with versions that count allocations while a check is running. It's its own executable because
+// the replacement applies to the whole program.
 
 #include "harness.hpp"
 
@@ -11,128 +10,17 @@
 #include <pianolab/engine_core/keyboard.hpp>
 #include <pianolab/engine_core/note_event.hpp>
 #include <pianolab/models/piano_key.hpp>
+#include <pianolab/testing/count_allocations.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <cstddef>
-#include <cstdlib>
 #include <memory>
-#include <new>
 #include <span>
 #include <vector>
 
-// --- Allocation counting ------------------------------------------------------------------------
-
-namespace {
-
-/// Above zero while a check is running on this thread.
-thread_local std::size_t checkDepth = 0;
-/// Allocations seen during checks on this thread.
-thread_local std::size_t allocationCount = 0;
-
-/// Counts an allocation if a check is running on this thread.
-void noteAllocation() noexcept {
-    if (checkDepth > 0) {
-        ++allocationCount;
-    }
-}
-
-/// Runs `body` and returns how many heap allocations it made on this thread.
-template <typename F> std::size_t countAllocations(F&& body) {
-    const std::size_t before = allocationCount;
-    ++checkDepth;
-    std::forward<F>(body)();
-    --checkDepth;
-    return allocationCount - before;
-}
-
-/// Counts and performs an ordinary allocation. Throws std::bad_alloc when out of memory, as
-/// operator new must.
-void* allocate(std::size_t size) {
-    noteAllocation();
-    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc): this *is* the allocator
-    if (void* memory = std::malloc(size == 0 ? 1 : size)) {
-        return memory;
-    }
-    throw std::bad_alloc();
-}
-
-/// Counts and performs an over-aligned allocation (for types declared `alignas` beyond the
-/// default). Throws std::bad_alloc when out of memory.
-void* allocateAligned(std::size_t size, std::align_val_t alignment) {
-    noteAllocation();
-    const auto align = static_cast<std::size_t>(alignment);
-#ifdef _MSC_VER
-    void* memory = _aligned_malloc(size == 0 ? 1 : size, align);
-#else
-    const std::size_t rounded = ((size == 0 ? 1 : size) + align - 1) / align * align;
-    void* memory = std::aligned_alloc(align, rounded);
-#endif
-    if (memory == nullptr) {
-        throw std::bad_alloc();
-    }
-    return memory;
-}
-
-/// Frees memory from `allocate`.
-void deallocate(void* memory) noexcept {
-    std::free(memory); // NOLINT(cppcoreguidelines-no-malloc): this *is* the allocator
-}
-
-/// Frees memory from `allocateAligned`.
-void deallocateAligned(void* memory) noexcept {
-#ifdef _MSC_VER
-    _aligned_free(memory);
-#else
-    std::free(memory); // NOLINT(cppcoreguidelines-no-malloc): this *is* the allocator
-#endif
-}
-
-} // namespace
-
-/// The replaceable global allocation functions ([new.delete] in the C++ standard), one doc
-/// comment for the whole set: every `new` counts and allocates through the helpers above, and
-/// every `delete` frees through the matching helper.
-// NOLINTBEGIN(readability-inconsistent-declaration-parameter-name)
-void* operator new(std::size_t size) {
-    return allocate(size);
-}
-void* operator new[](std::size_t size) {
-    return allocate(size);
-}
-void* operator new(std::size_t size, std::align_val_t alignment) {
-    return allocateAligned(size, alignment);
-}
-void* operator new[](std::size_t size, std::align_val_t alignment) {
-    return allocateAligned(size, alignment);
-}
-void operator delete(void* memory) noexcept {
-    deallocate(memory);
-}
-void operator delete[](void* memory) noexcept {
-    deallocate(memory);
-}
-void operator delete(void* memory, std::size_t /*size*/) noexcept {
-    deallocate(memory);
-}
-void operator delete[](void* memory, std::size_t /*size*/) noexcept {
-    deallocate(memory);
-}
-void operator delete(void* memory, std::align_val_t /*alignment*/) noexcept {
-    deallocateAligned(memory);
-}
-void operator delete[](void* memory, std::align_val_t /*alignment*/) noexcept {
-    deallocateAligned(memory);
-}
-void operator delete(void* memory, std::size_t /*size*/, std::align_val_t /*alignment*/) noexcept {
-    deallocateAligned(memory);
-}
-void operator delete[](void* memory, std::size_t /*size*/,
-                       std::align_val_t /*alignment*/) noexcept {
-    deallocateAligned(memory);
-}
-// NOLINTEND(readability-inconsistent-declaration-parameter-name)
+using pianolab::testing::countAllocations;
 
 // --- The checker works --------------------------------------------------------------------------
 

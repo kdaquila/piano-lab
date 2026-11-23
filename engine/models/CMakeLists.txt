@@ -20,3 +20,4 @@ pianolab_add_tests(pianolab_models_no_alloc_tests
     SOURCES tests/no_alloc_tests.cpp
     LINK pianolab::models
 )
+pianolab_count_allocations(pianolab_models_no_alloc_tests)
