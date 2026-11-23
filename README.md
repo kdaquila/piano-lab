@@ -14,13 +14,14 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | Folder | What's in it |
 |---|---|
 | `engine/` | **The engine:** the piano's physics and real-time plumbing, in standard C++ only. Never depends on JUCE, networking or UI code (enforced by the build). |
-| `engine/engine-core` | Key models, the 88-key keyboard, note events, offline rendering, tuning |
+| `engine/engine-core` | Key models, the 88-key keyboard, note events and performances (what's played), offline rendering, tuning |
 | `engine/models` | Physical models: strings, hammers, bridge, soundboard |
 | `engine/calibration` | Fitting model parameters to measurements and listening tests |
 | `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `engine/render-cli` | Renders the engine offline to WAV, with no audio device. Also a test and research tool. |
-| `backend/` | **The backend:** the program that runs the engine. Audio devices and MIDI through [JUCE](https://juce.com), and later the web server and control protocol. |
-| `ui/` | **The UI:** a React web app (from step 0.5) |
+| `backend/` | **The backend:** the program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), and later the web server and control protocol. |
+| `backend/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
+| `backend/render-cli` | `piano-lab-render`: renders a music file to WAV with no audio device. A test and research tool, built for AI agents |
+| `ui/` | **The UI:** a React web app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `tools/` | Developer scripts, such as the quality check |
 | `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
@@ -70,6 +71,13 @@ One script runs everything: formatting, build, tests, clang-tidy, and the Addres
 .\tools\check.ps1
 ```
 Add `-Fix` to let clang-format reformat files, or `-SkipAsan` for a faster run.
+
+## Rendering a music file to WAV
+`piano-lab-render` plays a MIDI file or MusicXML score (for example, exported from MuseScore) through the piano engine and writes a WAV file, with no audio device:
+```powershell
+.\build\dev\backend\render-cli\piano-lab-render.exe piece.musicxml -o piece.wav
+```
+See [docs/rendering.md](docs/rendering.md) for what it supports and how AI agents use it.
 
 ## Contributing
 This is a solo project: outside contributions and pull requests aren't accepted. Forks are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).

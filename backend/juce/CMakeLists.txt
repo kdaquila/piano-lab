@@ -11,6 +11,7 @@ add_library(pianolab::juce ALIAS pianolab_juce)
 target_link_libraries(pianolab_juce
     PRIVATE
         juce::juce_audio_devices # brings juce_core, juce_events and juce_audio_basics with it
+        juce::juce_audio_formats # WAV writing (render-cli)
     PUBLIC
         juce::juce_recommended_config_flags
 )
@@ -21,7 +22,11 @@ target_compile_definitions(pianolab_juce PUBLIC
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CURL=0                        # no networking through JUCE
     JUCE_WEB_BROWSER=0
-    JUCE_ASIO=0                            # ASIO is decided in step 0.3
+    JUCE_ASIO=0                            # ASIO is decided in step 0.4
+    JUCE_USE_FLAC=0                        # WAV is the only audio file format we need
+    JUCE_USE_OGGVORBIS=0
+    JUCE_USE_MP3AUDIOFORMAT=0
+    JUCE_USE_WINDOWS_MEDIA_FORMAT=0
 )
 
 # Pass the modules' include paths and definitions on to whatever links this library, marked SYSTEM.

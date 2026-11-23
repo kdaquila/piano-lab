@@ -1,4 +1,4 @@
-# The piano-lab program: runs the engine against real audio and MIDI devices (from step 0.3).
+# The piano-lab program: runs the engine against real audio and MIDI devices (from step 0.4).
 
 add_executable(pianolab_app src/main.cpp)
 set_target_properties(pianolab_app PROPERTIES OUTPUT_NAME piano-lab)

@@ -15,7 +15,7 @@ The MVP is the **all-in-one Windows desktop**: a Windows laptop running the back
 | Milestone | Goal | Status |
 |---|---|---|
 | [0: Skeleton](milestone-0.md) | C++ engine and JUCE backend: MIDI in → one sine per note → audio out, with the React UI served over the local network | In progress |
-| 1: Decay | Damped modes, render CLI, headless metric tests | Not started |
+| 1: Decay | Damped modes, headless metric tests, audio analysis tools for agents (pitch, partials, decay; spectrogram images) | Not started |
 | 2: Partials | Several modes per note | Not started |
 | 3: Stiffness | Inharmonic partials | Not started |
 | 4: Hammer | Nonlinear strike, velocity-dependent brightness | Not started |
