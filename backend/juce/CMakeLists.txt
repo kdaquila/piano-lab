@@ -11,10 +11,16 @@ add_library(pianolab::juce ALIAS pianolab_juce)
 target_link_libraries(pianolab_juce
     PRIVATE
         juce::juce_audio_devices # brings juce_core, juce_events and juce_audio_basics with it
-        juce::juce_audio_formats # WAV writing (render-cli)
+        juce::juce_audio_formats # WAV writing (rendering and recording)
     PUBLIC
         juce::juce_recommended_config_flags
 )
+
+if(PIANOLAB_ASIO)
+    set(pianolab_juce_asio 1) # uses the ASIO SDK headers bundled with JUCE
+else()
+    set(pianolab_juce_asio 0)
+endif()
 
 target_compile_definitions(pianolab_juce PUBLIC
     JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 # configuration comes from here, not an AppConfig.h
@@ -22,7 +28,7 @@ target_compile_definitions(pianolab_juce PUBLIC
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CURL=0                        # no networking through JUCE
     JUCE_WEB_BROWSER=0
-    JUCE_ASIO=0                            # ASIO is decided in step 0.4
+    JUCE_ASIO=${pianolab_juce_asio}        # see PIANOLAB_ASIO in the top-level CMakeLists.txt
     JUCE_USE_FLAC=0                        # WAV is the only audio file format we need
     JUCE_USE_OGGVORBIS=0
     JUCE_USE_MP3AUDIOFORMAT=0
