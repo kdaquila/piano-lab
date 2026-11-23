@@ -12,6 +12,7 @@ namespace {
 
 namespace ec = pianolab::engine_core;
 
+/// MIDI note number of middle C (C4).
 constexpr int middleC = 60;
 
 /// A press of `note` at `seconds` with `velocity`.

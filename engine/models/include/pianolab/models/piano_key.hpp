@@ -34,7 +34,7 @@ using PianoKey = std::variant<SineKey>;
 using PianoKeyboard = engine_core::Keyboard<PianoKey>;
 
 /// The whole piano's configuration: everything needed to build a `PianoKeyboard`. The defaults
-/// are the built-in settings; user settings are merged over them before validation (step 0.3).
+/// are the built-in settings; user settings are merged over them before validation (step 0.5).
 struct PianoConfig {
     engine_core::RenderConfig render;
     engine_core::TuningConfig tuning;

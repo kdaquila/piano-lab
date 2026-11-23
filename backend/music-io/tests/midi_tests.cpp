@@ -22,6 +22,7 @@ namespace {
 constexpr int ticksPerQuarter = 480;
 /// 120 quarter notes per minute, as microseconds per quarter note.
 constexpr int tempo120 = 500'000;
+/// MIDI note number of middle C (C4).
 constexpr int middleC = 60;
 
 /// A one-track MIDI file of `messages` (timestamps in ticks), at 120 quarter notes per minute.

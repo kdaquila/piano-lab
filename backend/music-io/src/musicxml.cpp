@@ -68,28 +68,44 @@ constexpr std::array<std::pair<std::string_view, double>, 14> markingVelocities{
     {"ffffff", 127.0},
 }};
 
-// What gets reported, one warning per kind. Each says what happened and what was done.
+// The warnings, one per kind of problem. Each says what happened and what was done about it.
+
+/// Warning: repeat signs, volta endings, D.C., D.S., coda and fine.
 constexpr std::string_view repeats =
     "repeats, endings and jumps are not supported yet; played straight through";
+/// Warning: grace notes.
 constexpr std::string_view graceNotes = "grace notes are not supported yet; skipped";
+/// Warning: fermatas.
 constexpr std::string_view fermatas = "fermatas are not supported yet; ignored";
+/// Warning: trills, turns, mordents and tremolos.
 constexpr std::string_view ornaments =
     "ornaments and tremolos are not supported yet; played as written";
+/// Warning: staccato, accents, tenuto and the like.
 constexpr std::string_view articulations =
     "articulations (staccato, accents, ...) are not supported yet; played as written";
+/// Warning: rolled chords.
 constexpr std::string_view arpeggios = "arpeggios are not supported yet; played as plain chords";
+/// Warning: glissandos and slides.
 constexpr std::string_view glissandos = "glissandos and slides are not supported yet; ignored";
+/// Warning: crescendo and diminuendo hairpins.
 constexpr std::string_view hairpins =
     "hairpins (crescendo, diminuendo) are not supported yet; the level stays until the next "
     "dynamic";
+/// Warning: dynamics that aren't a plain level, such as sf, sfz and fp.
 constexpr std::string_view accentDynamics =
     "accent dynamics (sf, fp, ...) are not supported yet; ignored";
+/// Warning: pedal markings and pedal playback settings.
 constexpr std::string_view pedals = "pedals are not supported yet; ignored";
+/// Warning: alterations that aren't whole semitones.
 constexpr std::string_view microtones =
     "microtones are not supported; rounded to the nearest semitone";
+/// Warning: percussion notes, which have no pitch.
 constexpr std::string_view unpitched = "unpitched (percussion) notes can't be played; skipped";
+/// Warning: notes whose pitch is missing or malformed.
 constexpr std::string_view badPitch = "notes with an unreadable pitch were skipped";
+/// Warning: notes with no (or a zero) duration.
 constexpr std::string_view noDuration = "notes without a duration were skipped";
+/// Warning: a `<backup>` that went back before its measure began.
 constexpr std::string_view badBackup =
     "a backup went past the start of its measure; moved to the measure start";
 

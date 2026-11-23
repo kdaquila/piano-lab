@@ -13,6 +13,7 @@ namespace mio = pianolab::music_io;
 
 namespace {
 
+/// The sample rate the tests write at, in hertz.
 constexpr double sampleRate = 48'000.0;
 
 /// A short test signal, including values beyond +-1 that integer formats would clip.
