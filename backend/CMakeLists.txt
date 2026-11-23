@@ -3,4 +3,5 @@
 
 add_subdirectory(juce)
 add_subdirectory(music-io)
+add_subdirectory(render-cli)
 add_subdirectory(app)
