@@ -10,6 +10,14 @@ project(piano-lab
 option(PIANOLAB_BUILD_BACKEND "Build the JUCE backend (audio devices, MIDI, server)" ON)
 option(PIANOLAB_BUILD_TESTS "Build the test suites" ON)
 option(PIANOLAB_ASAN "Build everything with AddressSanitizer" OFF)
+# ASIO (Windows): selectable, never the default device. JUCE bundles Steinberg's ASIO SDK headers,
+# licensed under the Steinberg ASIO licence or GPLv3; a distributed binary with ASIO must follow
+# one of them (checked before release; see docs/vision.md#openness). Turn off for an ASIO-free build.
+if(WIN32)
+    option(PIANOLAB_ASIO "Support ASIO audio devices (Windows)" ON)
+else()
+    set(PIANOLAB_ASIO OFF)
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

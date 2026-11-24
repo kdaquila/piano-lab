@@ -9,14 +9,14 @@
 #include <string_view>
 #include <vector>
 
-/// `piano-lab-render`: renders a music file with the piano engine to a WAV file, with no audio
+/// `piano-lab render`: renders a music file with the piano engine to a WAV file, with no audio
 /// device. Built for AI agents and tests: deterministic, and it never stops for a problem it can
 /// work around.
 namespace pianolab::render {
 
 /// The command's help text.
 inline constexpr std::string_view usage =
-    R"(usage: piano-lab-render <input> [-o <output.wav>] [--sample-rate <hz>]
+    R"(usage: piano-lab render <input> [-o <output.wav>] [--sample-rate <hz>]
 
 Renders a music file with the piano engine to a WAV file (32-bit float, mono). The render runs
 until the piano falls silent after the last note.

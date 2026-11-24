@@ -60,6 +60,7 @@ That opens the door to things we'd never build ourselves:
 | Web server | **cpp-httplib** (MIT): HTTP + WebSocket, single header | JUCE has no web server. Simplest to integrate; its thread-per-connection model is fine for a handful of clients. CivetWeb is the fallback. |
 | Protocol | **JSON over WebSocket**, with **nlohmann/json** (MIT) | Human-readable public API for frontends, scripts and AI tools; typed struct mapping and clear errors for bad input |
 | Real-time plumbing | **rigtorp/SPSCQueue** (MIT), wrapped as our own `rt::SpscQueue<T>` | Fixed-capacity single-producer/single-consumer queues between the MIDI, server and audio threads; never allocates after setup |
+| Logging | **spdlog** (MIT), behind our own small `Log` interface | Levels, a coloured console and rotating log files out of the box; our interface keeps it swappable and lets tests collect messages instead |
 | UI | **TypeScript + React + Vite**, **MUI** components (`sx` prop for styling), **Zustand** state | One mobile-first UI for phone, desktop and plugin window. MUI gives a rich component set without building a design system while prototyping; other skins (e.g. Tailwind) can come later. |
 | UI tooling | npm, **oxlint + oxfmt**, **Vitest + React Testing Library**, **Playwright** (plus Playwright MCP for agents) | Fast lint/format; unit, component and end-to-end tests; agents can drive and check the real UI during development |
 | Protocol types | **TypeBox** | Type-safe runtime validators for every message, with TypeScript types derived from them |
@@ -67,6 +68,9 @@ That opens the door to things we'd never build ourselves:
 | Code quality | Strict compiler warnings as errors, clang-tidy, clang-format, sanitizers in tests | Agents write most of the code; tooling and tests are their feedback loop |
 
 Two languages, each doing what it's best at: C++ for everything that runs the instrument, TypeScript for everything you look at.
+
+### Build only the real design
+Every user-facing surface (a command, an option, a mode, a file) is part of the final design. If a step seems to need something temporary, to be torn down once the real thing exists, that's a sign to reorder the steps or expand the design instead. A capability can wait until its real home exists (e.g. choosing the audio device arrives with configuration, not as a stopgap command-line option). Internal test harnesses that bypass or mock parts of the stack are ordinary testing practice, not temporary entry points.
 
 ### Dependency rules
 - **Pin every dependency** to an exact version or commit (via CPM.cmake), and upgrade deliberately.
@@ -87,7 +91,7 @@ We don't tune for small boards up front. Instead, quality is **customisable**: p
 - **Discovery** via mDNS, so a phone can find `piano.local` without typing IP addresses
 
 ## Openness
-- **MIT license.** Anyone can do anything with it, including closed-source commercial use. (Switched from Apache-2.0 on 2026-11-21 for simplicity and familiarity. JUCE itself comes under AGPLv3 or its own license, so a distributed app binary has to follow JUCE's terms; that gets checked before the first release.)
+- **MIT license.** Anyone can do anything with it, including closed-source commercial use. (Switched from Apache-2.0 on 2026-11-21 for simplicity and familiarity. JUCE itself comes under AGPLv3 or its own license, and the ASIO support uses Steinberg's ASIO SDK headers, bundled with JUCE, under the Steinberg ASIO licence or GPLv3. So a distributed app binary has to follow JUCE's terms and, if built with ASIO, one of the ASIO licences; that gets checked before the first release. The `PIANOLAB_ASIO` build option makes an ASIO-free build one switch.)
 - **Cited modelling choices.** The code is annotated with the papers, books and sources behind each modelling decision, so it's transparent on GitHub where every idea comes from. This also serves researchers and documents prior art.
 - **Durable publication** of releases (e.g. Zenodo with a DOI) once there's a product.
 

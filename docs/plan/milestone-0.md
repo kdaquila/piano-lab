@@ -12,8 +12,8 @@
 |---|---|---|
 | [0.1](#01-c-project-skeleton) | C++ project skeleton: CMake, JUCE, tests, linting | Done ([#3](https://github.com/kdaquila/piano-lab/pull/3)) |
 | [0.2](#02-engine-core-port) | Engine core: key model, 88-key keyboard, sine, headless tests | Done ([#4](https://github.com/kdaquila/piano-lab/pull/4)) |
-| [0.3](#03-offline-render-to-wav) | Offline render to WAV: MIDI or MusicXML in, WAV out, no devices | In progress |
-| [0.4](#04-headless-backend-app) | Headless backend app: audio out + MIDI in through JUCE, recording to WAV | Not started |
+| [0.3](#03-offline-render-to-wav) | Offline render to WAV: MIDI or MusicXML in, WAV out, no devices | Done ([#5](https://github.com/kdaquila/piano-lab/pull/5)) |
+| [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | In progress |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | Not started |
 | [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
 | [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
@@ -108,7 +108,7 @@
 - **Engine:** a `Performance` type (what the pianist plays: note events with times in seconds), its validation, conversion to sample-exact events, and rendering until the piano falls silent
 - **Backend readers:** Standard MIDI files (`.mid`) and MusicXML (`.musicxml`, `.xml`, and compressed `.mxl`), each turned into a `Performance`
 - A WAV writer: 32-bit float, mono
-- `piano-lab-render` (`backend/render-cli`): `piano-lab-render <input> [-o out.wav] [--sample-rate N]`
+- `piano-lab-render` (`backend/render-cli`): `piano-lab-render <input> [-o out.wav] [--sample-rate N]` (since 0.4: `piano-lab render`, in `backend/render`)
 - Tests: readers on small inputs built in code, a WAV reads back as what was rendered, renders are byte-identical across runs, and bad input is reported, never fatal
 
 **Acceptance checks:**
@@ -132,32 +132,38 @@
 
 **Follow-ups:**
 - The `asan` preset skips the backend, so the readers don't get AddressSanitizer runs yet.
-- `render-cli` takes configuration (including `silenceThreshold`, probably in dB) from step 0.5.
+- `piano-lab render` takes configuration (including `silenceThreshold`, probably in dB) from step 0.5.
 
-## 0.4 Headless backend app
+## 0.4 Piano server core
 
-**What:** the backend as a console app, running the engine against real devices through JUCE.
+**What:** the backend running the engine live, against real devices through JUCE: `piano-lab server start`.
 
 **Includes:**
-- Opening an audio output device at 48 kHz, with **Windows Audio (shared)** as the zero-setup default and the other JUCE device types (low-latency shared, exclusive, ASIO) selectable
-- Opening a MIDI input and turning note on/off into engine events, passed to the audio thread through a lock-free queue
-- Command-line options to list and choose devices and buffer size (until configuration arrives in 0.5)
-- **Recording:** `--record take.wav` writes what's played to a file while playing live. The audio thread hands samples to a writer thread through a lock-free queue, so recording can't cause dropouts.
-- **File-output mode:** runs the full backend pipeline (threads, queues, MIDI handling) writing to a WAV file instead of a sound card, with events from a file, for testing the backend without hardware
-- **Logging:** a non-audio thread regularly picks up the engine's diagnostics and logs them (console and a log file). Setup failures (e.g. a device that won't open) are caught, logged, and fall back to a default instead of exiting.
+- **One program, `piano-lab`, with subcommands for its roles:** `piano-lab render` (the 0.3 renderer, moved in; `piano-lab-render` is gone) and `piano-lab server start`. `server stop` and `server status` arrive in 0.6 as clients of the control API.
+- **`server start`** runs in the foreground until Ctrl+C, with zero-setup defaults and no options: the first device type's default audio output (Windows Audio, shared, on Windows) at 48 kHz if the device allows (otherwise its own rate), with the device's own buffer size, and **every MIDI input**.
+- **ASIO compiled in** (the `PIANOLAB_ASIO` build option, on by default on Windows), using the ASIO SDK headers bundled with JUCE. Never the default device; selectable from 0.5.
+- **The live pipeline:** each MIDI input's thread turns raw MIDI into engine events and hands them to the audio thread through its own lock-free queue. Each audio block takes every waiting event and applies it at the start of the block, in arrival order across inputs; renders; copies the output to the recorder while recording; and publishes the engine's diagnostics when they change.
+- **The audio core is free of JUCE and devices** (`backend/server`: `audio_core`, `live_midi`, `recorder`, `monitor`), so tests drive it block by block the way a sound card would. `server.cpp` is the thin JUCE layer: device callbacks and the main loop.
+- **Recording machinery:** audio thread → lock-free queue → recorder thread → a streamed 32-bit float WAV (written as `.partial`, renamed when finished). Each recording has a session number, so audio from a stopped recording never lands in the next. Starting and stopping recordings is driven by the control API from 0.6.
+- **Logging:** our own `Log` interface with spdlog behind it: a coloured console and a rotating file (`%APPDATA%\piano-lab\logs\piano-lab.log`, 5 MB × 3). The main thread (JUCE's message thread) checks ten times a second for news from the audio side (engine diagnostics, dropped notes or recording samples, the first pedal message) and logs it. Device problems are logged and never stop the server: with no audio device it runs silently, and MIDI inputs that fail to open are skipped.
 
 **Acceptance checks:**
 - Turning raw MIDI messages into engine events is unit-tested
+- The live pipeline, driven block by block through the real queues by a test harness, sounds exactly like the engine rendering the same events; a recording reads back as exactly what was played
+- The audio callback's work never allocates (allocation test, including queue overflow and engine problems) and never locks (review)
+- A queue stress test: two threads hammering a queue lose, duplicate and reorder nothing
 - You hear a clean sine per key with no clicks or dropouts, including chords and fast passages (manual)
-- A recording matches what was heard; file-output mode produces the expected WAV
-- The audio callback never allocates or locks (allocation test plus review)
 
 **Decisions:**
-- **Lock-free queues: rigtorp/SPSCQueue**, wrapped as `rt::SpscQueue<T>` in a small JUCE-free `rt` library. One single-producer/single-consumer queue per thread pair (MIDI → audio, server → audio, audio → server, audio → recorder). Fixed capacity, allocated at startup, so the audio thread never allocates. Simple settings like volume can be single atomics.
-- A **stress test** (two threads hammering a queue; nothing lost, duplicated or reordered) runs from this step. ThreadSanitizer joins once Linux builds exist (it isn't available with MSVC).
-
-**Open questions:**
-- ASIO in this step or later? (Needs the ASIO SDK at build time; it's now available under GPLv3 or Steinberg's license.)
+- **Build only the real design: no temporary entry points.** The original plan had command-line options for devices "until configuration arrives" and a `--record` flag. Both would have been torn down later, so they were dropped: device choice arrives with configuration (0.5) and the API (0.6), recording control with the API (0.6). See [vision.md](../vision.md#build-only-the-real-design).
+- **No file-output mode.** Offline sound is `piano-lab render`'s job; the live pipeline is tested by the internal harness, and end to end, from 0.6, by driving a running server through the API. A server writing to a file instead of a sound card can come later as a real output option, through the API.
+- **Live events play at the start of the next audio block.** Lowest latency and simplest; the cost is up to one block of timing jitter (2.7 ms at 128 samples). Each event keeps its arrival time, so placing events exactly by timestamp (one block later) stays a contained change; step 0.8 measures both.
+- **Every MIDI input opens by default**, each with its own single-producer queue (JUCE may call each input on its own thread). Hot-plugging comes later.
+- **ASIO: compiled in, not the default.** Windows Audio (shared) works on every PC with no setup; ASIO needs a driver (an audio interface's, or a generic one). The licence point joins the pre-release licence check ([vision.md](../vision.md#openness)).
+- **Lock-free queues: rigtorp/SPSCQueue v2.0.1**, wrapped as `rt::SpscQueue<T>` (header-only, in `engine/rt`). One single-producer/single-consumer queue per thread pair. Fixed capacity, allocated at startup, so the audio thread never allocates. Single numbers (dropped counts, the recording session) are atomics.
+- **Logging: spdlog 1.17.0**, using `std::format`, behind `pianolab::logging::Log` (a plain struct holding a sink function), so tests collect messages and the library stays swappable.
+- **JUCE's message loop runs on the main thread**, because JUCE's Windows MIDI and ASIO code rely on it. A 100 ms timer on it does the logging and watches for Ctrl+C, so there's no separate logger thread.
+- ThreadSanitizer joins once Linux builds exist (it isn't available with MSVC).
 
 ## 0.5 Backend configuration
 
@@ -165,7 +171,7 @@
 
 **Includes:**
 - User settings holding only what the user changed, merged over the built-in `PianoConfig` and then validated with the engine's `validate`. Loading returns `std::expected<…, Error>`, and every problem is logged rather than stopping the app.
-- Device settings learned in 0.4 (audio device, buffer size, MIDI input) move from command-line options into configuration
+- Device settings: the audio device type (e.g. ASIO), device, sample rate and buffer size, and which MIDI inputs to open. 0.4 opens the defaults; this is where they become the user's choice.
 
 **Open questions:**
 - Format and location: a config file (JSON with comments, TOML, …), `.env` / environment variables, or both; and the parsing library (reflect-cpp or nlohmann/json; see the 0.2 discussion)
@@ -177,6 +183,8 @@
 **Includes:**
 - An embedded HTTP server that serves the UI's static files, and a WebSocket endpoint for control
 - **Protocol v0:** UI → backend: volume, release time, note on/off (on-screen keys), device selection. Backend → UI: active keys and an output level meter, throttled to around 30 Hz.
+- **Recording and devices through the API:** start and stop a recording (the recorder machinery from 0.4), list the available audio and MIDI devices, and choose them
+- `piano-lab server stop` and `piano-lab server status`: small clients of the API
 - Messages cross from the server thread to the audio thread through lock-free queues; audio never goes over the network
 - Listening on the local network so a phone can connect (pairing and discovery come after the MVP)
 - **The protocol is a public, documented API**, not an internal detail: written up in `docs/protocol.md`, with a version number, so other people's frontends, scripts and AI tools can use it

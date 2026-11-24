@@ -1,11 +1,11 @@
 # Rendering music to WAV
 
-`piano-lab-render` plays a music file through the piano engine and writes the sound to a WAV file, with no audio device. It's how AI agents (and tests) get the sound the piano makes, so they can measure it, and how you can hear an agent's test piece.
+`piano-lab render` plays a music file through the piano engine and writes the sound to a WAV file, with no audio device. It's how AI agents (and tests) get the sound the piano makes, so they can measure it, and how you can hear an agent's test piece.
 
 ## Running it
 Build first (`cmake --build --preset dev`, after `. .\tools\dev-shell.ps1`), then:
 ```powershell
-.\build\dev\backend\render-cli\piano-lab-render.exe <input> [-o <output.wav>] [--sample-rate <hz>]
+.\build\dev\backend\app\piano-lab.exe render <input> [-o <output.wav>] [--sample-rate <hz>]
 ```
 - **Input:** a MIDI file (`.mid`, `.midi`) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`).
 - **Output:** a 32-bit float, mono WAV. By default it's the input's path with `.wav`, at 48 kHz.
@@ -55,6 +55,6 @@ Write short MusicXML: it's plain text, and the owner can open it in MuseScore to
 ## Where it lives
 - `engine/engine-core`: the `Performance` type, its validation, and rendering until silent
 - `backend/music-io`: the MIDI and MusicXML readers and the WAV writer
-- `backend/render-cli`: the command
+- `backend/render`: the rendering pipeline; `backend/app`: the `piano-lab render` command
 
 The decisions behind it are in [the plan, step 0.3](plan/milestone-0.md#03-offline-render-to-wav).

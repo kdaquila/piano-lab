@@ -18,6 +18,16 @@ endif()
 
 include(CPM) # cmake/CPM.cmake, v0.43.2, vendored
 
+# The lock-free queue behind rt::SpscQueue (MIT). A single header with only standard includes, so
+# the engine's rt library uses it directly (see docs/vision.md#dependency-rules).
+CPMAddPackage(
+    NAME SPSCQueue
+    VERSION 2.0.1
+    URL https://github.com/rigtorp/SPSCQueue/archive/refs/tags/v2.0.1.tar.gz
+    URL_HASH SHA256=b2aa6bb53388f55778c704f80cb941e2208f447ad026601d189a8cb31acf5f45
+    DOWNLOAD_ONLY YES
+)
+
 if(PIANOLAB_BUILD_TESTS)
     CPMAddPackage(
         NAME Catch2
@@ -39,5 +49,29 @@ if(PIANOLAB_BUILD_BACKEND)
         URL_HASH SHA256=103e6c9d5f17f19bc7b5485a890573609d326513aad4db6b045181f4936ef424
         SYSTEM YES
         EXCLUDE_FROM_ALL YES
+    )
+
+    # Logging (MIT), used only behind our own Log interface (backend/logging). Formats with the
+    # standard library's std::format instead of bundling the fmt library. On Windows, file names
+    # are UTF-16, so log paths with any characters work.
+    if(WIN32)
+        set(pianolab_spdlog_wchar ON)
+    else()
+        set(pianolab_spdlog_wchar OFF)
+    endif()
+    CPMAddPackage(
+        NAME spdlog
+        VERSION 1.17.0
+        URL https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz
+        URL_HASH SHA256=d8862955c6d74e5846b3f580b1605d2428b11d97a410d86e2fb13e857cd3a744
+        SYSTEM YES
+        EXCLUDE_FROM_ALL YES
+        OPTIONS
+            "SPDLOG_USE_STD_FORMAT ON"
+            "SPDLOG_WCHAR_FILENAMES ${pianolab_spdlog_wchar}"
+            "SPDLOG_BUILD_EXAMPLE OFF"
+            "SPDLOG_BUILD_TESTS OFF"
+            "SPDLOG_BUILD_BENCH OFF"
+            "SPDLOG_INSTALL OFF"
     )
 endif()

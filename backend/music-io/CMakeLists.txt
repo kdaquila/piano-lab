@@ -6,6 +6,7 @@ add_library(pianolab_music_io
     src/midi.cpp
     src/musicxml.cpp
     src/wav.cpp
+    src/wav_file.cpp
 )
 add_library(pianolab::music_io ALIAS pianolab_music_io)
 target_include_directories(pianolab_music_io PUBLIC include)
@@ -20,5 +21,6 @@ pianolab_add_tests(pianolab_music_io_tests
         tests/midi_tests.cpp
         tests/musicxml_tests.cpp
         tests/wav_tests.cpp
+        tests/wav_file_tests.cpp
     LINK pianolab::music_io pianolab::juce
 )
