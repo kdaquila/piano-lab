@@ -5,9 +5,11 @@
 #include <pianolab/logging/log.hpp>
 #include <pianolab/models/piano_key.hpp>
 #include <pianolab/server/audio_core.hpp>
+#include <pianolab/server/devices.hpp>
 #include <pianolab/server/monitor.hpp>
 #include <pianolab/server/recorder.hpp>
 #include <pianolab/server/server.hpp>
+#include <pianolab/settings/settings.hpp>
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_events/juce_events.h>
@@ -20,14 +22,13 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace pianolab::server {
 
 namespace {
 
-/// The sample rate the server asks the audio device for, in hertz.
-constexpr double preferredSampleRate = 48'000.0;
 /// How often the main loop checks for news and for a stop request, in milliseconds.
 constexpr int monitorIntervalMs = 100;
 
@@ -36,17 +37,25 @@ std::string utf8(const juce::String& text) {
     return text.toStdString();
 }
 
+/// UTF-8 text as JUCE text.
+juce::String juceText(const std::string& text) {
+    return juce::String::fromUTF8(text.data(), static_cast<int>(text.size()));
+}
+
 /// Plays the audio core through a JUCE audio device: renders mono and copies it to every
 /// output channel.
 class AudioCallback final : public juce::AudioIODeviceCallback {
 public:
-    /// An adapter for the audio core whose shared side is `links`, logging device changes.
-    AudioCallback(AudioLinks& links, const logging::Log& log) : links(links), log(log) {}
+    /// An adapter for the audio core whose shared side is `links`, playing the piano `piano`
+    /// (the user's settings, validated once the device's sample rate is known) and logging
+    /// device changes.
+    AudioCallback(AudioLinks& links, models::PianoConfig piano, const logging::Log& log)
+        : links(links), piano(piano), log(log) {}
 
     /// Before audio starts (not on the audio thread): builds the piano for the device's sample
     /// rate and scratch space for its block size. May allocate.
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override {
-        models::PianoConfig config;
+        models::PianoConfig config = piano;
         config.render.sampleRate = device->getCurrentSampleRate();
         const auto validated = models::validate(config);
         for (const auto& problem : validated.errors) {
@@ -94,6 +103,7 @@ public:
 
 private:
     AudioLinks& links;
+    models::PianoConfig piano; ///< the user's piano; its sample rate comes from the device
     const logging::Log& log;
     std::optional<AudioState> state; ///< built when the device starts
     std::vector<float> mono;         ///< the engine's mono output for one block
@@ -148,24 +158,60 @@ private:
     MonitorState state;
 };
 
-/// Logs every audio device type and its output devices, for reference.
-void logAvailableDevices(juce::AudioDeviceManager& manager, const logging::Log& log) {
+/// Every audio device type JUCE offers and its outputs, in JUCE's order, scanning for devices.
+/// Logs them at the debug level, for reference.
+std::vector<AudioDeviceType> audioDeviceTypes(juce::AudioDeviceManager& manager,
+                                              const logging::Log& log) {
+    std::vector<AudioDeviceType> types;
     for (auto* type : manager.getAvailableDeviceTypes()) {
         type->scanForDevices();
         const auto names = type->getDeviceNames(false);
-        logging::debug(log, "audio device type {}: {}", utf8(type->getTypeName()),
+        AudioDeviceType found{.name = utf8(type->getTypeName()),
+                              .outputs = {},
+                              .defaultOutput = static_cast<std::size_t>(
+                                  std::max(type->getDefaultDeviceIndex(false), 0))};
+        for (const auto& name : names) {
+            found.outputs.push_back(utf8(name));
+        }
+        logging::debug(log, "audio device type {}: {}", found.name,
                        names.isEmpty() ? std::string("(no outputs)")
                                        : utf8(names.joinIntoString(", ")));
+        types.push_back(std::move(found));
     }
+    return types;
 }
 
-/// Opens the default audio output, preferring 48 kHz. Logs what happened; returns whether any
-/// device opened.
-bool openAudio(juce::AudioDeviceManager& manager, const logging::Log& log) {
-    juce::AudioDeviceManager::AudioDeviceSetup preferred;
-    preferred.sampleRate = preferredSampleRate;
-    const juce::String problem = manager.initialise(0, 2, nullptr, true, {}, &preferred);
-    if (manager.getCurrentAudioDevice() == nullptr) {
+/// Opens the audio output `settings` asks for, falling back to the defaults for anything it
+/// can't (see `chooseAudioOutput`). A sample rate or buffer size the device can't do becomes its
+/// closest one (JUCE's choice). Logs what happened; returns whether any device opened.
+bool openAudio(juce::AudioDeviceManager& manager, const settings::AudioSettings& settings,
+               const logging::Log& log) {
+    const auto validated = settings::validate(settings);
+    for (const auto& problem : validated.errors) {
+        logging::warning(log, "{}", problem.message);
+    }
+    const settings::AudioSettings& audio = *validated.config;
+    const auto choice = chooseAudioOutput(audio, audioDeviceTypes(manager, log));
+    for (const auto& problem : choice.warnings) {
+        logging::warning(log, "{}", problem.message);
+    }
+    if (choice.type.empty()) {
+        logging::error(log, "no audio output found; running silently");
+        return false;
+    }
+
+    // JUCE's own saved-state format is the one way to name the device type, device, rate and
+    // buffer size in a single step. If that device won't open, JUCE falls back to the defaults.
+    juce::XmlElement state("DEVICESETUP");
+    state.setAttribute("deviceType", juceText(choice.type));
+    state.setAttribute("audioOutputDeviceName", juceText(choice.output));
+    state.setAttribute("audioDeviceRate", audio.sampleRate);
+    if (audio.bufferSize > 0) {
+        state.setAttribute("audioDeviceBufferSize", static_cast<int>(audio.bufferSize));
+    }
+    const juce::String problem = manager.initialise(0, 2, &state, true);
+    auto* device = manager.getCurrentAudioDevice();
+    if (device == nullptr) {
         logging::error(log, "no audio output could be opened{}; running silently",
                        problem.isEmpty() ? std::string{} : ": " + utf8(problem));
         return false;
@@ -173,7 +219,44 @@ bool openAudio(juce::AudioDeviceManager& manager, const logging::Log& log) {
     if (problem.isNotEmpty()) {
         logging::warning(log, "audio output: {}", utf8(problem));
     }
+    if (utf8(device->getTypeName()) != choice.type || utf8(device->getName()) != choice.output) {
+        logging::warning(log, "audio: \"{}\" ({}) couldn't be opened; using the default instead",
+                         choice.output, choice.type);
+    }
+    if (device->getCurrentSampleRate() != audio.sampleRate) {
+        logging::info(log, "audio: the device can't run at {} Hz; using its closest, {} Hz",
+                      engine_core::formatValue(audio.sampleRate),
+                      engine_core::formatValue(device->getCurrentSampleRate()));
+    }
+    if (audio.bufferSize > 0 &&
+        device->getCurrentBufferSizeSamples() != static_cast<int>(audio.bufferSize)) {
+        logging::info(log, "audio: the device can't use {}-sample buffers; using its closest, {}",
+                      audio.bufferSize, device->getCurrentBufferSizeSamples());
+    }
     return true;
+}
+
+/// The MIDI inputs `settings` asks for, out of every input connected (see `chooseMidiInputs`).
+/// Logs any listed input that isn't connected.
+juce::Array<juce::MidiDeviceInfo> chosenMidiInputs(const settings::MidiSettings& settings,
+                                                   const logging::Log& log) {
+    const auto available = juce::MidiInput::getAvailableDevices();
+    std::vector<std::string> names;
+    std::string list;
+    for (const auto& device : available) {
+        names.push_back(utf8(device.name));
+        list += (list.empty() ? "" : ", ") + names.back();
+    }
+    logging::debug(log, "MIDI inputs: {}", names.empty() ? std::string("(none)") : list);
+    const auto choice = chooseMidiInputs(settings, names);
+    for (const auto& problem : choice.warnings) {
+        logging::warning(log, "{}", problem.message);
+    }
+    juce::Array<juce::MidiDeviceInfo> chosen;
+    for (const std::size_t index : choice.inputs) {
+        chosen.add(available[static_cast<int>(index)]);
+    }
+    return chosen;
 }
 
 /// The MIDI inputs that opened, and their receivers.
@@ -208,11 +291,12 @@ MidiInputs openMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices, Audi
 
 } // namespace
 
-void runServer(const logging::Log& log, const std::atomic<bool>& stopRequested) {
+void runServer(const settings::Settings& settings, const logging::Log& log,
+               const std::atomic<bool>& stopRequested) {
     // This thread becomes JUCE's message thread: device notifications arrive through it.
     juce::MessageManager::getInstance();
     {
-        const auto midiDevices = juce::MidiInput::getAvailableDevices();
+        const auto midiDevices = chosenMidiInputs(settings.midi, log);
         const auto links = makeAudioLinks(static_cast<std::size_t>(midiDevices.size()));
 
         // The recorder is ready for the control API (step 0.6) to start and stop recordings.
@@ -220,9 +304,8 @@ void runServer(const logging::Log& log, const std::atomic<bool>& stopRequested) 
         recorder.startThread(log);
 
         juce::AudioDeviceManager manager;
-        logAvailableDevices(manager, log);
-        AudioCallback callback(*links, log);
-        if (openAudio(manager, log)) {
+        AudioCallback callback(*links, settings.piano, log);
+        if (openAudio(manager, settings.audio, log)) {
             manager.addAudioCallback(&callback);
         }
         auto midi = openMidiInputs(midiDevices, *links, log);

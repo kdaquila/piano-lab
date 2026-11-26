@@ -6,6 +6,7 @@
 #include <pianolab/music_io/files.hpp>
 #include <pianolab/render/render.hpp>
 #include <pianolab/server/server.hpp>
+#include <pianolab/settings/settings.hpp>
 
 #include <juce_core/juce_core.h>
 
@@ -20,6 +21,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -30,10 +33,13 @@ constexpr std::string_view usage = R"(usage: piano-lab <command> [options]
 A physically modelled piano.
 
 commands:
-  render <input> [-o <output.wav>] [--sample-rate <hz>]
+  render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
                   render a MIDI or MusicXML file to a WAV file, with no audio device
-  server start    run the piano: plays the default audio output from every MIDI input,
-                  until Ctrl+C
+  server start    run the piano until Ctrl+C: plays the audio output from the MIDI inputs
+                  chosen in settings.toml (by default, the default output from every input)
+
+Settings live in settings.toml, next to piano-lab; 'server start' writes one listing every
+setting if there isn't one. Logs go to the logs folder next to it.
 
 Run 'piano-lab render --help' for more on rendering.
 )";
@@ -45,6 +51,19 @@ static_assert(std::atomic<bool>::is_always_lock_free);
 /// Signal handler for Ctrl+C and termination requests: asks the server to stop.
 extern "C" void requestStop(int /*signal*/) {
     stopRequested.store(true);
+}
+
+/// The folder piano-lab is installed in: the one holding the program. Its settings and logs
+/// live here, so it keeps everything it writes in one place.
+std::filesystem::path installFolder() {
+    const juce::File program = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    const std::string text = program.getParentDirectory().getFullPathName().toStdString();
+    return {std::u8string(text.begin(), text.end())};
+}
+
+/// The settings file, `settings.toml` in the install folder.
+std::filesystem::path settingsFile() {
+    return installFolder() / std::string(pianolab::settings::fileName);
 }
 
 /// `piano-lab render <arguments>`: renders a file and returns the exit code: 0 when a WAV was
@@ -60,7 +79,7 @@ int runRender(std::span<const std::string_view> arguments) {
         return 0;
     }
 
-    const auto summary = pianolab::render::renderFile(*options);
+    const auto summary = pianolab::render::renderFile(*options, settingsFile());
     if (!summary) {
         std::cerr << "error: " << summary.error().message << '\n';
         return 1;
@@ -69,20 +88,48 @@ int runRender(std::span<const std::string_view> arguments) {
         std::cerr << "warning: " << warning.message << '\n';
     }
     const std::size_t issues = summary->warnings.size();
-    std::cout << std::format("wrote {} ({:.2f} s); {} issue{} reported\n",
+    const std::string settings =
+        summary->settings.empty()
+            ? std::string("the built-in settings")
+            : "settings from " + pianolab::music_io::displayPath(summary->settings);
+    std::cout << std::format("wrote {} ({:.2f} s) with {}; {} issue{} reported\n",
                              pianolab::music_io::displayPath(summary->output), summary->seconds,
-                             issues, issues == 1 ? "" : "s");
+                             settings, issues, issues == 1 ? "" : "s");
     return 0;
 }
 
-/// Where the server's log file goes: `piano-lab/logs/piano-lab.log` in the user's application
-/// data folder (on Windows, `%APPDATA%`).
+/// Where the server's log file goes: `logs/piano-lab.log` in the install folder.
 std::filesystem::path logFile() {
-    const juce::File folder =
-        juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-    const std::string text = folder.getFullPathName().toStdString();
-    return std::filesystem::path(std::u8string(text.begin(), text.end())) / "piano-lab" / "logs" /
-           "piano-lab.log";
+    return installFolder() / "logs" / "piano-lab.log";
+}
+
+/// The server's settings: `file` merged over the built-ins. When there's no `file`, writes the
+/// starter file there and uses the built-ins. Logs every problem; never fails.
+pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
+                                            const pianolab::logging::Log& log) {
+    namespace settings = pianolab::settings;
+    using pianolab::music_io::displayPath;
+    std::error_code error; // if it can't even be checked, it's treated as not there
+    if (!std::filesystem::exists(file, error)) {
+        if (const auto written = settings::writeStarterSettings(file); written) {
+            pianolab::logging::info(log, "wrote a settings file listing every setting: {}",
+                                    displayPath(file));
+        } else {
+            pianolab::logging::warning(log, "{}; using the built-in settings",
+                                       written.error().message);
+        }
+        return {};
+    }
+    auto loaded = settings::loadSettings(file);
+    if (!loaded) {
+        pianolab::logging::error(log, "{}; using the built-in settings", loaded.error().message);
+        return {};
+    }
+    pianolab::logging::info(log, "settings: {}", displayPath(file));
+    for (const auto& problem : loaded->warnings) {
+        pianolab::logging::warning(log, "{}", problem.message);
+    }
+    return std::move(loaded->settings);
 }
 
 /// `piano-lab server start`: runs the piano until Ctrl+C. Returns the exit code, 0.
@@ -102,7 +149,8 @@ int runServer() {
 #ifdef SIGBREAK
     std::signal(SIGBREAK, requestStop); // Ctrl+Break, and closing the console window, on Windows
 #endif
-    pianolab::server::runServer(log, stopRequested);
+    const auto settings = serverSettings(settingsFile(), log);
+    pianolab::server::runServer(settings, log, stopRequested);
     return 0;
 }
 

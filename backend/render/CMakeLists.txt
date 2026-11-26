@@ -6,7 +6,7 @@ add_library(pianolab::render ALIAS pianolab_render)
 target_include_directories(pianolab_render PUBLIC include)
 target_link_libraries(pianolab_render
     PUBLIC pianolab::engine_core
-    PRIVATE pianolab::models pianolab::music_io
+    PRIVATE pianolab::models pianolab::music_io pianolab::settings
 )
 pianolab_set_warnings(pianolab_render)
 

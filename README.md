@@ -48,7 +48,7 @@ You need:
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
 - Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `tools/check.ps1` is what enforces formatting. Visual Studio stays available as a debugger.
 
-The first configure downloads the pinned dependencies (JUCE, Catch2, spdlog, SPSCQueue) into a shared cache (`%LOCALAPPDATA%\CPM`, or set `CPM_SOURCE_CACHE`), so it takes a few minutes. Later configures are quick.
+The first configure downloads the pinned dependencies (JUCE, Catch2, spdlog, SPSCQueue, toml++) into a shared cache (`%LOCALAPPDATA%\CPM`, or set `CPM_SOURCE_CACHE`), so it takes a few minutes. Later configures are quick.
 
 ### Everyday commands
 In each new terminal, set up the Visual Studio build environment first:
@@ -80,7 +80,20 @@ Plug in a MIDI keyboard, then start the server:
 ```powershell
 .\build\dev\backend\app\piano-lab.exe server start
 ```
-It plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input, and runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `%APPDATA%\piano-lab\logs\piano-lab.log`. Choosing the audio device (including ASIO) comes with configuration in step 0.5.
+It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab.log` next to `piano-lab.exe`.
+
+### Settings
+Your settings live in `settings.toml`, next to `piano-lab.exe`. The first `server start` writes one listing every setting, commented out, with its description, range and built-in value: remove the `#` in front of a setting to change it. For example, to play through an ASIO interface from one keyboard:
+```toml
+[audio]
+type = "ASIO"
+output = "Focusrite USB ASIO"
+bufferSize = 128
+
+[midi]
+inputs = ["Digital Piano"]
+```
+By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano. Restart the server after changing the file.
 
 ## Rendering a music file to WAV
 `piano-lab render` plays a MIDI file or MusicXML score (for example, exported from MuseScore) through the piano engine and writes a WAV file, with no audio device:
