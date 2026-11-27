@@ -34,7 +34,7 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 ### One-time setup
 You need:
 - **Visual Studio 2022** (Community is fine) with the **Desktop development with C++** workload, plus the **C++ AddressSanitizer** component for the sanitizer build
-- **Node.js** 24.12 or newer (the LTS release), which runs the developer commands. **CMake** 3.28 or newer, **Ninja**, and **LLVM** 23 (for clang-format and clang-tidy). With winget:
+- **Node.js** 24.15 or newer (the LTS release), which runs the developer commands. **CMake** 3.28 or newer, **Ninja**, and **LLVM** 23 (for clang-format and clang-tidy). With winget:
 
   ```powershell
   winget install --id OpenJS.NodeJS.LTS --exact
@@ -51,7 +51,7 @@ You need:
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
 - Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `npm run check` is what enforces formatting. Visual Studio stays available as a debugger.
 
-Then, in the repository folder, install the developer tools that come from npm (TypeScript, for checking the task scripts):
+Then, in the repository folder, install the developer tools that come from npm (TypeScript, and npm-run-all2 for running every part's tasks):
 ```powershell
 npm install
 ```
@@ -71,9 +71,9 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 | `npm start` | Builds, then plays the piano live (see [Playing the piano](#playing-the-piano)) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
-Each one runs every part of the project. To run one part only, add its name: `npm run build:server` builds just the server (the C++ engine and backend). Today the server is the only part; the UI joins in a later step with its own `:ui` commands.
+Each one runs every part of the project. To run one part only, add its name: `npm run build:server` builds just the server (the C++ engine and backend). Today the server is the only part; the UI joins in a later step with its own `:ui` commands, which the plain commands then run too.
 
-`build` and `test` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (engine and tests under AddressSanitizer, built without JUCE). For example `npm test -- release`. Output goes to `build/<preset>/`.
+`build:server` and `test:server` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (engine and tests under AddressSanitizer, built without JUCE). For example `npm run test:server -- release`. Output goes to `build/<preset>/`.
 
 ### The quality check
 One command runs everything: a type check of the task scripts, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.

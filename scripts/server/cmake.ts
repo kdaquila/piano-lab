@@ -2,13 +2,23 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Env, exec, repoRoot, stage, TaskError } from '../lib/run.ts';
+import { msvcEnv } from '../lib/msvc.ts';
+import {
+    type Env,
+    exec,
+    repoRoot,
+    requirePrograms,
+    run,
+    stage,
+    TaskError,
+    userCwd,
+} from '../lib/run.ts';
 
 /** The presets: everyday debug, optimised, and the engine under AddressSanitizer. */
 export const presets = ['dev', 'release', 'asan'] as const;
 export type Preset = (typeof presets)[number];
 
-/** Reads the optional preset argument of build:server and test:server. `dev` when there's none. */
+/** Reads the optional preset argument of build:server and test:server: `dev` when there's none. */
 export function parsePreset(args: readonly string[]): Preset {
     if (args.length > 1) {
         throw new TaskError(`Expected at most one preset, got: ${args.join(' ')}`);
@@ -44,6 +54,13 @@ function needsConfigure(preset: Preset): boolean {
         .some((file) => existsSync(file) && statSync(file).mtimeMs > configured);
 }
 
+/** The Visual Studio build environment, with the build tools checked up front. */
+export async function buildEnv(): Promise<Env> {
+    const env = await msvcEnv();
+    requirePrograms(['cl', 'cmake', 'ninja', 'ctest'], env);
+    return env;
+}
+
 /** Configures (when needed) and builds a preset. */
 export async function build(env: Env, preset: Preset): Promise<void> {
     if (needsConfigure(preset)) {
@@ -55,4 +72,12 @@ export async function build(env: Env, preset: Preset): Promise<void> {
 /** Runs a built preset's tests. */
 export async function test(env: Env, preset: Preset): Promise<void> {
     await stage(`Test (${preset})`, () => exec('ctest', ['--preset', preset], { env }));
+}
+
+/** Builds the dev preset, then runs piano-lab from the folder npm was started in. */
+export async function runProgram(args: readonly string[]): Promise<number> {
+    const env = await buildEnv();
+    await build(env, 'dev');
+    console.log('');
+    return run(programPath('dev'), args, { env: process.env, cwd: userCwd });
 }

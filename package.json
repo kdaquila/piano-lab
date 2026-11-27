@@ -5,25 +5,27 @@
     "license": "MIT",
     "type": "module",
     "engines": {
-        "node": ">=24.12.0"
+        "node": ">=24.15.0"
     },
     "scripts": {
-        "build": "node scripts/task.ts build",
-        "build:server": "node scripts/task.ts build:server",
-        "test": "node scripts/task.ts test",
-        "test:server": "node scripts/task.ts test:server",
-        "format": "node scripts/task.ts format",
-        "format:server": "node scripts/task.ts format:server",
-        "lint": "node scripts/task.ts lint",
-        "lint:server": "node scripts/task.ts lint:server",
-        "check": "node scripts/task.ts check",
-        "check:server": "node scripts/task.ts check:server",
-        "start": "node scripts/task.ts start",
-        "start:server": "node scripts/task.ts start:server",
-        "render": "node scripts/task.ts render"
+        "build": "run-s \"build:*\"",
+        "build:server": "node scripts/server/build.ts",
+        "test": "run-s \"test:*\"",
+        "test:server": "node scripts/server/test.ts",
+        "format": "run-s \"format:*\"",
+        "format:server": "node scripts/server/format.ts",
+        "lint": "run-s \"lint:*\"",
+        "lint:server": "node scripts/server/lint.ts",
+        "check": "run-s typecheck \"check:*\"",
+        "check:server": "node scripts/server/check.ts",
+        "typecheck": "tsc -p scripts",
+        "start": "run-s \"start:*\"",
+        "start:server": "node scripts/server/start.ts",
+        "render": "node scripts/server/render.ts"
     },
     "devDependencies": {
         "@types/node": "24.19.4",
+        "npm-run-all2": "9.1.0",
         "typescript": "7.0.2"
     }
 }

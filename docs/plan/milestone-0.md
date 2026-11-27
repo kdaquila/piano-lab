@@ -200,8 +200,8 @@
 **What:** one cargo/npm-like entry point for every developer task, replacing `tools/dev-shell.ps1` and `tools/check.ps1`.
 
 **Includes:**
-- `package.json` at the root, whose scripts all run `node scripts/task.ts <task>`
-- Tasks `build`, `test`, `format`, `lint`, `check` and `start`, which run every part of the project, and `build:server`, `test:server`, ... for one part. `render` builds and renders a music file.
+- `package.json` at the root, listing every task: `build:server`, `test:server`, `format:server`, `lint:server`, `check:server` and `start:server`, each one TypeScript file under `scripts/server/`, and `render`
+- The plain `build`, `test`, `format`, `lint`, `check` and `start` run every part's task with npm-run-all2 (`run-s "build:*"`)
 - The scripts load the Visual Studio x64 environment themselves, for the programs they start only
 
 **Acceptance checks:**
@@ -209,8 +209,9 @@
 - The README, agent rules and docs use the npm commands
 
 **Decisions:**
-- **TypeScript task scripts, run directly by Node** (type stripping, stable since Node 24.12; no tsx or build step). Easier to read and maintain than PowerShell, just, Task or make, cross-platform, and Node arrives for the UI anyway.
-- **Node 24.12 or newer**, enforced by `engines` with `engine-strict`.
+- **TypeScript task scripts, run directly by Node** (type stripping, stable since Node 24.12; no tsx or build step), one file per task. Easier to read and maintain than PowerShell, just, Task or make, cross-platform, and Node arrives for the UI anyway.
+- **npm-run-all2 for the aggregates**, rather than a task runner of our own: `package.json` stays the one list of tasks, and the UI's `:ui` tasks join the plain commands without edits. The plain commands take no arguments; presets go to the part (`npm run test:server -- release`).
+- **Node 24.15 or newer** (npm-run-all2's minimum), enforced by `engines` with `engine-strict`.
 - **`npm run check` type-checks the scripts** with `tsc` (TypeScript and `@types/node` as exact-pinned dev dependencies).
 - **Naming:** plain names run every part; `:server` (and from 0.7, `:ui`) run one.
 
@@ -257,7 +258,7 @@
 
 **Decisions:**
 - **A modern, customisable interface:** users decide what's on screen (e.g. show, hide or move the log panel), rather than the app offering fixed modes. 0.7 lays the groundwork; full customisation can grow over later milestones.
-- **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `scripts/task.ts`, and the plain `build`, `test`, `check`, ... run them too. `ui/` becomes an npm workspace of the root `package.json`.
+- **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `package.json`, and the plain `build`, `test`, `check`, ... pick them up through their `run-s` globs. `ui/` becomes an npm workspace of the root `package.json`.
 - **Stack:** npm; TypeScript + React + Vite; **MUI** (Material UI) as the component library, styled with the `sx` prop. Other skins (e.g. Tailwind) are a fun later option, but prototyping shouldn't require building a design system.
 - **State: Zustand**, with a disciplined, **normalized** store: flat collections keyed by id, no deep state trees.
 - **Protocol types: TypeBox** validators for every message, with TypeScript types derived from them. Incoming backend messages are validated at the boundary.

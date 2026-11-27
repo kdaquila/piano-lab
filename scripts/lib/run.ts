@@ -160,3 +160,29 @@ export async function mapLimited<T, R>(
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
     return results;
 }
+
+/** Throws a TaskError if a task that takes no arguments was given some. */
+export function noArgs(args: readonly string[]): void {
+    if (args.length > 0) {
+        throw new TaskError(`This task takes no arguments, got: ${args.join(' ')}`);
+    }
+}
+
+/**
+ * Runs a task script: `body` gets the arguments given after `--` on the npm command line, and may
+ * return an exit code, e.g. of the program it ran. Every task file under scripts/ calls this once.
+ */
+export async function runTask(body: (args: string[]) => Promise<number | void>): Promise<void> {
+    // Ctrl+C reaches every program in the terminal. Let the program we're running stop on its own
+    // (piano-lab finishes its recording, a build reports its failure) instead of exiting under it.
+    process.on('SIGINT', () => {});
+
+    const name = process.env['npm_lifecycle_event'] ?? 'task';
+    try {
+        process.exitCode = (await body(process.argv.slice(2))) ?? 0;
+    } catch (error) {
+        if (!(error instanceof TaskError)) throw error;
+        console.error(styleText('red', `\n${name} FAILED: ${error.message}`));
+        process.exitCode = 1;
+    }
+}
