@@ -226,7 +226,8 @@
 - **Recording and devices through the API:** start and stop a recording (the recorder machinery from 0.4), list the available audio and MIDI devices, and choose them
 - `piano-lab server stop` and `piano-lab server status`: small clients of the API
 - Messages cross from the server thread to the audio thread through lock-free queues; audio never goes over the network
-- Listening on the local network so a phone can connect (pairing and discovery come after the MVP)
+- Listening on the local network so a phone can connect, with **pairing** before any device can control it (discovery comes after the MVP)
+- **Saving settings from the app:** changes made through the API are written back to `settings.toml`
 - **The protocol is a public, documented API**, not an internal detail: written up in `docs/protocol.md`, with a version number, so other people's frontends, scripts and AI tools can use it
 
 **Acceptance checks:**
@@ -238,6 +239,14 @@
 - **cpp-httplib** for HTTP + WebSocket, contained behind our own `ControlServer` interface per the [dependency rules](../vision.md#dependency-rules). CivetWeb is the fallback if its newer WebSocket support gives trouble.
 
 - **JSON messages, using nlohmann/json.** A public API used by other people's frontends, scripts and AI tools (MCP) has to be human-readable and debuggable, and at ~30 messages a second binary formats buy nothing. Each message is a plain C++ struct mapped to JSON. Malformed network input is rejected with clear errors. nlohmann/json is contained in the protocol code only, per the dependency rules. A published JSON Schema for the API can follow later (useful for MCP, third-party frontends and generating the UI's TypeScript types).
+
+- **JSON over HTTP for requests, one fire-and-forget WebSocket for live traffic.** HTTP carries everything that waits for its own answer: listing devices, reading and saving settings, starting and stopping recordings, status, stop. It's "REST" in the casual sense: `GET` for reads, `POST` for anything that changes or does something, JSON in and out, one error shape, coarse status codes. The WebSocket has no request/response: clients send commands (notes, live setting changes), and the backend broadcasts events (active keys, level, logs, the current state) to every client, so a change made on the phone shows up on the laptop too. A single ordered socket keeps on-screen note-ons and note-offs in order. Considered: WebSocket only with JSON-RPC 2.0 (sound, but nothing is `curl`-able and the CLI gets heavier) and HTTP with Server-Sent Events (on-screen notes over separate `POST`s can arrive out of order). The messages don't depend on how they're carried, so TLS or another transport can be added behind `ControlServer` later.
+- **Settings auto-save.** Changes apply live and are written to `settings.toml` about a second after the last one, so a slider drag is one write. The whole file is regenerated from the field tables (the 0.5 starter-file writer), written to a temporary file and renamed into place.
+- **The server owns `settings.toml` while it runs.** It's read at startup only; to edit it by hand, stop the server first. Safety net: if the file changed on disk since the server last read or wrote it, it's copied to `settings.toml.bak` (and logged) before being overwritten. Considered: reloading hand edits live with a field-by-field merge (more machinery than one user needs) and a separate private working copy (two sources of truth).
+- **Pairing in this step, not after the MVP**, so there's never an open API to tear down later. The terminal shows a short code at startup; a phone enters it once; the local browser pairs itself through a one-time token in the URL the backend opens. Codes are single-use and expire, and repeated wrong guesses lock pairing. A paired client gets a long random token, sent as an `HttpOnly`, `SameSite=Strict` cookie or as an `Authorization: Bearer` header (for scripts and other non-browser clients), and required on every request and on the WebSocket handshake. Paired devices are remembered (hashed) in a file next to the exe. `piano-lab server stop` and `status` read a local token file that only the local user can read. Details (code length, a QR code, unpairing) are settled during the step.
+- **Browser protections, always on:** requests whose `Host` isn't `localhost`, an IP address or our own name are rejected (DNS rebinding), cross-site `Origin`s are rejected on `POST` and on the WebSocket handshake, and `POST` bodies must be `application/json`.
+- **Listening on the network by default**, with `[server] listen = "network"` or `"local"` and `[server] port` in `settings.toml`. Windows Firewall asks on first run; allowing private networks only keeps it off public Wi-Fi.
+- **Traffic isn't encrypted yet.** On a home network, Wi-Fi encryption (WPA2/WPA3) covers it from everyone without the Wi-Fi password. `docs/protocol.md` says so, and step 0.9 decides on transport security.
 
 ## 0.7 React UI
 
@@ -290,7 +299,10 @@
 - `docs/security.md`: what we protect (the user's PC, their files and settings, the music), who from (malicious websites in the user's browser, devices on the same network, people who know the Wi-Fi password, shared and public networks), and which defence covers each threat, or why a gap is accepted for now
 - A review of what 0.6 and 0.7 built against it: pairing and tokens, browser protections, the network default, input limits, file paths, privileges
 - Hardening the network-facing code: fuzz tests for the protocol parsing, alongside the existing AddressSanitizer runs
-- A decision on transport security for clients on other devices (phone), choosing between the routes noted during 0.6's discussion: Plex-style certificates, a phone app with a pinned certificate, a hosted UI with WebRTC, Tailscale, or accepting plain HTTP on home networks
+- A decision on transport security for clients on other devices (phone), tested on a real Android phone and iPhone. The routes considered during 0.6's discussion:
+  - **The backend's own self-signed certificate (leading).** It works at once after clicking past a browser warning; installing a CA on the phone makes it trusted for good. The CA must be a throwaway (its private key deleted right after signing the server's certificate) and name-constrained, so it can never vouch for other sites. A trusted connection also makes the UI installable as a PWA, and enables wake lock and Service Workers on the phone. Open: what happens when the laptop's address changes.
+  - Plex-style certificates (needs a DNS and certificate service of ours), a native phone app pinning the certificate (app-store fees), a hosted UI using WebRTC (needs hosting and internet to connect), and Tailscale (an optional extra for people who use it). All but Tailscale break the no-fees, no-cloud rule ([vision.md](../vision.md#distribution)).
+  - Not encrypting: fine on a home network behind WPA2/WPA3; not on shared Wi-Fi.
 - A habit for dependency security advisories and a way for users to get fixes quickly
 
 **Acceptance checks:**

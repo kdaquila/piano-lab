@@ -87,10 +87,19 @@ An error must never interrupt someone playing, in any build. The engine recovers
 ## Performance: scale by presets, not by targeting the weakest machine
 We don't tune for small boards up front. Instead, quality is **customisable**: presets can trade quality for CPU (fewer modes per string, simpler soundboard, lower polyphony for sympathetic resonance, etc.), so weaker hardware still plays flawlessly at reduced detail. The original target stays the reference: the sustain-pedal worst case under 50% of one core on a normal Windows laptop.
 
-## Remote control, done safely (later)
-- **Local network only** by default
-- **Pairing**: a PIN or code shown by the backend before a phone can control it
-- **Discovery** via mDNS, so a phone can find `piano.local` without typing IP addresses
+## Security first
+The backend listens on the network, so it's treated as something worth attacking, even as a piano app: AI-assisted attacks make small targets worthwhile. The costliest harm isn't someone reading what you play but a bug in network-facing code letting someone run code on your PC, so most of the effort goes there.
+- **Pairing from the first network step** (0.6): a short code shown by the backend, entered once per device, before anything can control it. The local browser pairs itself.
+- **Browser protections, always on:** `Host` and `Origin` checks and JSON-only requests, so websites in your own browser can't drive the piano.
+- **A written threat model** (step 0.9, `docs/security.md`) that every security decision is checked against, plus fuzz tests for the code that parses network input.
+- **Transport security for phones** (encryption between the phone and the backend) is decided in step 0.9. The leading route is the backend's own self-signed certificate, with an optional install of a throwaway CA on the phone, which also makes the UI installable as a PWA. No route may cost money or depend on a cloud service of ours.
+- **Later:** discovery via mDNS, so a phone can find the piano without typing an IP address.
+
+## Distribution
+- **Source-first.** The public source is the product; building it is one command, and an agent can do it for you.
+- **No fees and no signing services, ever.** It's a free app: no paid code-signing certificates, no notarisation, no app stores, no cloud portals.
+- **Prebuilt binaries through npm** (later): public GitHub Actions builds compile the backend for each platform and publish it, with the built UI, as npm packages (one per platform, picked automatically, the way esbuild and oxlint ship). `npx piano-lab` then runs it with only Node installed. npm's provenance attestation shows which commit built each binary. To check first: how Windows' Smart App Control treats such binaries, and the JUCE and ASIO licence terms (see [Openness](#openness)).
+- **"Install with your AI agent":** a short prompt in the README pointing an agent at step-by-step setup instructions written for agents, tested in a clean Windows Sandbox.
 
 ## Openness
 - **MIT license.** Anyone can do anything with it, including closed-source commercial use. (Switched from Apache-2.0 on 2026-11-21 for simplicity and familiarity. JUCE itself comes under AGPLv3 or its own license, and the ASIO support uses Steinberg's ASIO SDK headers, bundled with JUCE, under the Steinberg ASIO licence or GPLv3. So a distributed app binary has to follow JUCE's terms and, if built with ASIO, one of the ASIO licences; that gets checked before the first release. The `PIANOLAB_ASIO` build option makes an ASIO-free build one switch.)
