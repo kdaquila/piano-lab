@@ -116,6 +116,17 @@ std::unique_ptr<AudioLinks> makeAudioLinks(std::size_t inputCount) {
     return links;
 }
 
+void receiveNote(AudioLinks& links, std::size_t input, const engine_core::NoteEvent& event,
+                 double arrivedSeconds) noexcept {
+    if (input >= links.inputs.size()) {
+        return;
+    }
+    if (!links.inputs[input]->tryPush(
+            LiveEvent{.event = event, .arrivedSeconds = arrivedSeconds})) {
+        links.droppedEvents.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 void receiveMidi(AudioLinks& links, std::size_t input, std::span<const std::uint8_t> bytes,
                  double arrivedSeconds) noexcept {
     if (input >= links.inputs.size()) {
@@ -123,10 +134,7 @@ void receiveMidi(AudioLinks& links, std::size_t input, std::span<const std::uint
     }
     const MidiMeaning meaning = readMidiMessage(bytes);
     if (const auto* event = std::get_if<engine_core::NoteEvent>(&meaning)) {
-        if (!links.inputs[input]->tryPush(
-                LiveEvent{.event = *event, .arrivedSeconds = arrivedSeconds})) {
-            links.droppedEvents.fetch_add(1, std::memory_order_relaxed);
-        }
+        receiveNote(links, input, *event, arrivedSeconds);
     } else if (std::holds_alternative<UnsupportedPedal>(meaning)) {
         links.pedalMessages.fetch_add(1, std::memory_order_relaxed);
     }

@@ -1,14 +1,21 @@
-// The server's JUCE side: thin adapters from JUCE's device callbacks to the JUCE-free audio core,
-// and the main loop. JUCE requires inheritance for its callbacks; nothing else sees it.
+// The audio service's JUCE side: thin adapters from JUCE's device callbacks to the JUCE-free audio
+// core, the devices behind the service's hooks, and the main loop. JUCE requires inheritance for
+// its callbacks; nothing else sees it.
 
 #include <pianolab/engine_core/config.hpp>
+#include <pianolab/engine_core/error.hpp>
+#include <pianolab/engine_core/note_event.hpp>
 #include <pianolab/live/audio_core.hpp>
 #include <pianolab/live/devices.hpp>
 #include <pianolab/live/monitor.hpp>
+#include <pianolab/live/pipe_io.hpp>
 #include <pianolab/live/recorder.hpp>
 #include <pianolab/live/server.hpp>
+#include <pianolab/live/service.hpp>
 #include <pianolab/logging/log.hpp>
 #include <pianolab/models/piano_key.hpp>
+#include <pianolab/music_io/files.hpp>
+#include <pianolab/pipe/messages.hpp>
 #include <pianolab/settings/settings.hpp>
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -18,10 +25,15 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <format>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -29,8 +41,9 @@ namespace pianolab::live {
 
 namespace {
 
-/// How often the main loop checks for news and for a stop request, in milliseconds.
-constexpr int monitorIntervalMs = 100;
+/// How often the main loop sends events, saves and checks for a stop, in milliseconds: about 30
+/// times a second, enough for a smooth level meter.
+constexpr int eventIntervalMs = 33;
 
 /// JUCE text as UTF-8.
 std::string utf8(const juce::String& text) {
@@ -52,10 +65,21 @@ public:
     AudioCallback(AudioLinks& links, models::PianoConfig piano, const logging::Log& log)
         : links(links), piano(piano), log(log) {}
 
+    /// The piano to build the next time the device starts. On the main thread; the piano
+    /// already playing takes new settings through `AudioLinks::keyboards`.
+    void setPiano(const models::PianoConfig& newPiano) {
+        const std::scoped_lock lock(pianoMutex);
+        piano = newPiano;
+    }
+
     /// Before audio starts (not on the audio thread): builds the piano for the device's sample
     /// rate and scratch space for its block size. May allocate.
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override {
-        models::PianoConfig config = piano;
+        models::PianoConfig config;
+        {
+            const std::scoped_lock lock(pianoMutex);
+            config = piano;
+        }
         config.render.sampleRate = device->getCurrentSampleRate();
         const auto validated = models::validate(config);
         for (const auto& problem : validated.errors) {
@@ -103,6 +127,7 @@ public:
 
 private:
     AudioLinks& links;
+    std::mutex pianoMutex;     ///< guards `piano`: the device may restart on another thread
     models::PianoConfig piano; ///< the user's piano; its sample rate comes from the device
     const logging::Log& log;
     std::optional<AudioState> state; ///< built when the device starts
@@ -126,36 +151,6 @@ public:
 private:
     AudioLinks& links;
     std::size_t input;
-};
-
-/// Ten times a second on the main thread: logs news from the audio side, and ends the message
-/// loop once a stop is requested.
-class MonitorTimer final : public juce::Timer {
-public:
-    /// A timer reporting from `links` to `log` and watching `stopRequested`.
-    MonitorTimer(AudioLinks& links, const logging::Log& log, const std::atomic<bool>& stopRequested)
-        : links(links), log(log), stopRequested(stopRequested) {}
-    MonitorTimer(const MonitorTimer&) = delete;
-    MonitorTimer& operator=(const MonitorTimer&) = delete;
-    MonitorTimer(MonitorTimer&&) = delete;
-    MonitorTimer& operator=(MonitorTimer&&) = delete;
-    /// Stops the timer before it goes away.
-    ~MonitorTimer() override { stopTimer(); }
-
-    /// Reports news; stops the message loop when asked to.
-    void timerCallback() override {
-        reportNews(state, links, log);
-        if (stopRequested.load()) {
-            stopTimer();
-            juce::MessageManager::getInstance()->stopDispatchLoop();
-        }
-    }
-
-private:
-    AudioLinks& links;
-    const logging::Log& log;
-    const std::atomic<bool>& stopRequested;
-    MonitorState state;
 };
 
 /// Every audio device type JUCE offers and its outputs, in JUCE's order, scanning for devices.
@@ -281,6 +276,7 @@ juce::Array<juce::MidiDeviceInfo> chosenMidiInputs(const settings::MidiSettings&
 struct MidiInputs {
     std::vector<std::unique_ptr<MidiReceiver>> receivers;
     std::vector<std::unique_ptr<juce::MidiInput>> inputs;
+    std::vector<std::string> names; ///< as the system names them, for the status
 };
 
 /// Opens every input in `devices`, feeding input `i` of `links` from device `i`. Logs each one;
@@ -300,47 +296,276 @@ MidiInputs openMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices, Audi
         logging::info(log, "MIDI input: {}", utf8(device.name));
         opened.receivers.push_back(std::move(receiver));
         opened.inputs.push_back(std::move(input));
+        opened.names.push_back(utf8(device.name));
     }
     if (devices.isEmpty()) {
-        logging::warning(log, "no MIDI inputs found; plug in a keyboard and restart the server");
+        logging::warning(log, "no MIDI inputs found; plug in a keyboard and choose it in the "
+                              "settings, or restart piano-lab");
     }
     return opened;
 }
 
+/// Everything live that a device change rebuilds: the queues to and from the audio thread, the
+/// recorder, the audio callback and the MIDI inputs, plus what the main loop last reported about
+/// them. Built by `startRig`, stopped by `stopRig`.
+struct Rig {
+    std::unique_ptr<AudioLinks> links; ///< first, so it outlives everything using it
+    std::unique_ptr<Recorder> recorder;
+    std::unique_ptr<AudioCallback> callback;
+    MidiInputs midi;
+    std::size_t screenInput = 0; ///< the input queue for notes played on screen
+    MonitorState monitor;
+    EventState events;
+    /// A keyboard with new settings, waiting for room in `links->keyboards`.
+    std::optional<models::PianoKeyboard> pendingKeyboard;
+};
+
+/// Opens the devices `settings` name and starts playing: the whole live side, from scratch.
+std::unique_ptr<Rig> startRig(juce::AudioDeviceManager& manager, const settings::Settings& settings,
+                              const logging::Log& log) {
+    auto rig = std::make_unique<Rig>();
+    const auto midiDevices = chosenMidiInputs(settings.midi, log);
+    rig->screenInput = static_cast<std::size_t>(midiDevices.size());
+    rig->links = makeAudioLinks(rig->screenInput + 1);
+    rig->recorder = std::make_unique<Recorder>(*rig->links);
+    rig->recorder->startThread(log);
+    rig->callback = std::make_unique<AudioCallback>(*rig->links, settings.piano, log);
+    if (openAudio(manager, settings.audio, log)) {
+        manager.addAudioCallback(rig->callback.get());
+    }
+    rig->midi = openMidiInputs(midiDevices, *rig->links, log);
+    return rig;
+}
+
+/// Stops everything `rig` runs: the MIDI inputs, then audio, then any recording, which is
+/// finished and logged. Its queues stay, for one last report.
+void stopRig(juce::AudioDeviceManager& manager, Rig& rig, const logging::Log& log) {
+    for (auto& input : rig.midi.inputs) {
+        input->stop();
+    }
+    rig.midi = {};
+    manager.removeAudioCallback(rig.callback.get());
+    manager.closeAudioDevice();
+    if (rig.recorder->recording()) {
+        if (const auto summary = rig.recorder->stop()) {
+            logging::info(log, "recording finished: {} ({:.1f} s)",
+                          music_io::displayPath(summary->file), summary->seconds);
+        } else {
+            logging::error(log, "recording lost: {}", summary.error().message);
+        }
+    }
+    rig.recorder.reset();
+}
+
+/// Hands the waiting keyboard, if any, to the audio thread, unless its queue is full (then it
+/// waits for the next try).
+void flushKeyboard(Rig& rig) {
+    if (rig.pendingKeyboard && rig.links->keyboards.tryPush(*rig.pendingKeyboard)) {
+        rig.pendingKeyboard.reset();
+    }
+}
+
+/// The devices and what plays through them, for the service's hooks.
+struct Live {
+    juce::AudioDeviceManager manager;
+    std::unique_ptr<Rig> rig;
+    logging::Log log;
+    std::filesystem::path recordingsFolder;
+};
+
+/// See `ServiceHooks::playNote`.
+void playNote(Live& live, const engine_core::NoteEvent& event) {
+    receiveNote(*live.rig->links, live.rig->screenInput, event,
+                juce::Time::getMillisecondCounterHiRes() * 0.001); // MIDI time stamps' clock
+}
+
+/// See `ServiceHooks::changePiano`.
+void changePiano(Live& live, const models::PianoConfig& piano) {
+    Rig& rig = *live.rig;
+    rig.callback->setPiano(piano);
+    auto* device = live.manager.getCurrentAudioDevice();
+    if (device == nullptr) {
+        return; // nothing playing; the next device built uses the new settings
+    }
+    models::PianoConfig config = piano;
+    config.render.sampleRate = device->getCurrentSampleRate();
+    const auto validated = models::validate(config);
+    for (const auto& problem : validated.errors) {
+        logging::warning(live.log, "{}", problem.message);
+    }
+    rig.pendingKeyboard = models::makePianoKeyboard(validated.config);
+    flushKeyboard(rig);
+}
+
+/// See `ServiceHooks::restartDevices`.
+void restartDevices(Live& live, const settings::Settings& settings) {
+    logging::info(live.log, "reopening the devices for the new settings");
+    stopRig(live.manager, *live.rig, live.log);
+    reportNews(live.rig->monitor, *live.rig->links, live.log);
+    live.rig.reset();
+    live.rig = startRig(live.manager, settings, live.log);
+}
+
+/// See `ServiceHooks::listDevices`.
+pipe::Devices listDevices(Live& live) {
+    pipe::Devices devices;
+    for (auto& type : audioDeviceTypes(live.manager, live.log)) {
+        devices.audio.push_back({.type = std::move(type.name), .outputs = std::move(type.outputs)});
+    }
+    for (const auto& device : juce::MidiInput::getAvailableDevices()) {
+        devices.midi.push_back(utf8(device.name));
+    }
+    return devices;
+}
+
+/// See `ServiceHooks::status`.
+pipe::Status status(Live& live) {
+    pipe::Status status;
+    if (auto* device = live.manager.getCurrentAudioDevice()) {
+        status.audioType = utf8(device->getTypeName());
+        status.audioOutput = utf8(device->getName());
+        status.sampleRate = device->getCurrentSampleRate();
+        status.bufferSize = device->getCurrentBufferSizeSamples();
+    }
+    status.midiInputs = live.rig->midi.names;
+    status.recording = live.rig->recorder->recording();
+    return status;
+}
+
+/// See `ServiceHooks::startRecording`.
+std::expected<std::filesystem::path, engine_core::Error> startRecording(Live& live) {
+    auto* device = live.manager.getCurrentAudioDevice();
+    if (device == nullptr) {
+        return std::unexpected(
+            engine_core::Error{"no audio output is open, so there's nothing to record"});
+    }
+    std::error_code error;
+    std::filesystem::create_directories(live.recordingsFolder, error);
+    if (error) {
+        return std::unexpected(engine_core::Error{std::format(
+            "can't create {}: {}", music_io::displayPath(live.recordingsFolder), error.message())});
+    }
+    auto path = recordingPath(live.recordingsFolder,
+                              utf8(juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S")));
+    if (auto started = live.rig->recorder->start(path, device->getCurrentSampleRate()); !started) {
+        return std::unexpected(std::move(started.error()));
+    }
+    logging::info(live.log, "recording to {}", music_io::displayPath(path));
+    return path;
+}
+
+/// See `ServiceHooks::stopRecording`.
+std::expected<RecordingSummary, engine_core::Error> stopRecording(Live& live) {
+    auto summary = live.rig->recorder->stop();
+    if (summary) {
+        logging::info(live.log, "recording finished: {} ({:.1f} s)",
+                      music_io::displayPath(summary->file), summary->seconds);
+    }
+    return summary;
+}
+
+/// Writes `lines` to stdout.
+void writeLines(const std::vector<std::string>& lines) {
+    for (const auto& line : lines) {
+        static_cast<void>(writeLine(line));
+    }
+}
+
+/// The main thread's loop: answers commands as soon as they arrive (woken by the stdin reader),
+/// and about 30 times a second sends events, saves settings that are due, logs news from the
+/// audio side, and stops once asked to or once stdin ends.
+class MainLoop final : public juce::Timer, public juce::AsyncUpdater {
+public:
+    /// A loop serving `live` and `state` through `hooks`, with commands from `inbox`.
+    MainLoop(Live& live, ServiceState& state, const ServiceHooks& hooks, Inbox& inbox,
+             const std::atomic<bool>& stopRequested)
+        : live(live), state(state), hooks(hooks), inbox(inbox), stopRequested(stopRequested) {}
+    MainLoop(const MainLoop&) = delete;
+    MainLoop& operator=(const MainLoop&) = delete;
+    MainLoop(MainLoop&&) = delete;
+    MainLoop& operator=(MainLoop&&) = delete;
+    /// Stops the timer and drops any wake-up still pending.
+    ~MainLoop() override {
+        stopTimer();
+        cancelPendingUpdate();
+    }
+
+    /// Woken by the stdin reader: answers what arrived.
+    void handleAsyncUpdate() override { serve(); }
+
+    /// About 30 times a second: see the class.
+    void timerCallback() override {
+        serve();
+        Rig& rig = *live.rig;
+        flushKeyboard(rig);
+        reportNews(rig.monitor, *rig.links, live.log);
+        for (const auto& event : liveEvents(rig.events, *rig.links)) {
+            static_cast<void>(writeLine(pipe::eventLine(event)));
+        }
+        saveIfDue(state, live.log, Clock::now());
+        if (stopRequested.load() || inputClosed(inbox)) {
+            stopTimer();
+            juce::MessageManager::getInstance()->stopDispatchLoop();
+        }
+    }
+
+private:
+    /// Answers every line waiting.
+    void serve() {
+        for (const auto& line : takeLines(inbox)) {
+            writeLines(handleLine(state, hooks, live.log, line, Clock::now()));
+        }
+    }
+
+    Live& live;
+    ServiceState& state;
+    const ServiceHooks& hooks;
+    Inbox& inbox;
+    const std::atomic<bool>& stopRequested;
+};
+
 } // namespace
 
-void runServer(const settings::Settings& settings, const logging::Log& log,
-               const std::atomic<bool>& stopRequested) {
+void runService(const ServiceOptions& options, const logging::Log& log,
+                const std::atomic<bool>& stopRequested) {
     // This thread becomes JUCE's message thread: device notifications arrive through it.
     juce::MessageManager::getInstance();
     {
-        const auto midiDevices = chosenMidiInputs(settings.midi, log);
-        const auto links = makeAudioLinks(static_cast<std::size_t>(midiDevices.size()));
+        Live live;
+        live.log = log;
+        live.recordingsFolder = options.recordingsFolder;
+        live.rig = startRig(live.manager, options.settings, log);
 
-        // The recorder is ready for the control API (step 0.6) to start and stop recordings.
-        Recorder recorder(*links);
-        recorder.startThread(log);
+        ServiceState state{.settings = options.settings,
+                           .settingsFile = options.settingsFile,
+                           .settingsText = options.settingsText,
+                           .saveAt = std::nullopt};
+        const ServiceHooks hooks{
+            .playNote = [&live](const engine_core::NoteEvent& event) { playNote(live, event); },
+            .changePiano = [&live](const models::PianoConfig& piano) { changePiano(live, piano); },
+            .restartDevices =
+                [&live](const settings::Settings& settings) { restartDevices(live, settings); },
+            .listDevices = [&live] { return listDevices(live); },
+            .status = [&live] { return status(live); },
+            .startRecording = [&live] { return startRecording(live); },
+            .stopRecording = [&live] { return stopRecording(live); },
+        };
 
-        juce::AudioDeviceManager manager;
-        AudioCallback callback(*links, settings.piano, log);
-        if (openAudio(manager, settings.audio, log)) {
-            manager.addAudioCallback(&callback);
-        }
-        auto midi = openMidiInputs(midiDevices, *links, log);
-
+        const auto inbox = std::make_shared<Inbox>();
+        MainLoop loop(live, state, hooks, *inbox, stopRequested);
+        setWake(*inbox, [&loop] { loop.triggerAsyncUpdate(); });
+        startStdinReader(inbox);
+        static_cast<void>(writeLine(pipe::eventLine(pipe::Ready{.version = options.version})));
         logging::info(log, "the piano is ready; press Ctrl+C to stop");
-        MonitorTimer monitor(*links, log, stopRequested);
-        monitor.startTimer(monitorIntervalMs);
+        loop.startTimer(eventIntervalMs);
         juce::MessageManager::getInstance()->runDispatchLoop();
 
+        setWake(*inbox, {}); // the reader may outlive the loop; it mustn't wake it any more
         logging::info(log, "stopping");
-        for (auto& input : midi.inputs) {
-            input->stop();
-        }
-        midi.inputs.clear();
-        manager.removeAudioCallback(&callback);
-        manager.closeAudioDevice();
-        monitor.timerCallback(); // anything the audio side reported in its last moments
+        saveIfDue(state, log, Clock::now(), true);
+        stopRig(live.manager, *live.rig, log);
+        reportNews(live.rig->monitor, *live.rig->links, log); // the audio side's last moments
+        live.rig.reset();
     }
     juce::MessageManager::deleteInstance();
     logging::info(log, "stopped");

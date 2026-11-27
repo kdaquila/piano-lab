@@ -93,6 +93,12 @@ struct AudioLinks {
 void receiveMidi(AudioLinks& links, std::size_t input, std::span<const std::uint8_t> bytes,
                  double arrivedSeconds) noexcept;
 
+/// On input `input`'s producer thread: passes `event` on to the audio thread, stamped with
+/// `arrivedSeconds` (on the same clock as MIDI time stamps). A full queue drops it and counts it.
+/// Never blocks or allocates. Inputs past the end of `links.inputs` are ignored.
+void receiveNote(AudioLinks& links, std::size_t input, const engine_core::NoteEvent& event,
+                 double arrivedSeconds) noexcept;
+
 /// What only the audio thread touches: the keyboard, and scratch space allocated up front.
 struct AudioState {
     models::PianoKeyboard keyboard;

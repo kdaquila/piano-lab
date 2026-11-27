@@ -1,7 +1,8 @@
 // piano-lab: the one program. Its subcommands are its roles:
 //   piano-lab render ...      render a music file to WAV, fast and offline
-//   piano-lab server start    run the piano live against audio and MIDI devices
+//   piano-lab server start    run the piano live, driven over the service pipe (stdin/stdout)
 
+#include <pianolab/live/pipe_io.hpp>
 #include <pianolab/live/server.hpp>
 #include <pianolab/logging/log.hpp>
 #include <pianolab/music_io/files.hpp>
@@ -18,6 +19,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -35,11 +37,14 @@ A physically modelled piano.
 commands:
   render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
                   render a MIDI or MusicXML file to a WAV file, with no audio device
-  server start    run the piano until Ctrl+C: plays the audio output from the MIDI inputs
-                  chosen in settings.toml (by default, the default output from every input)
+  server start    run the piano until Ctrl+C or until its input ends: plays the audio output
+                  from the MIDI inputs chosen in settings.toml (by default, the default output
+                  from every input), and takes service pipe commands (JSON-RPC 2.0, one per
+                  line) on stdin, answering and reporting on stdout
 
 Settings live in settings.toml, next to piano-lab; 'server start' writes one listing every
-setting if there isn't one. Logs go to the logs folder next to it.
+setting if there isn't one, and saves changes made through the pipe. Logs go to the logs
+folder next to it, recordings to the recordings folder.
 
 Run 'piano-lab render --help' for more on rendering.
 )";
@@ -103,10 +108,17 @@ std::filesystem::path logFile() {
     return installFolder() / "logs" / "piano-lab.log";
 }
 
+/// The settings the server starts with, and the settings file's text as read (or written), for
+/// the `.bak` safety net when saving; nothing when the file couldn't be read.
+struct StartingSettings {
+    pianolab::settings::Settings settings;
+    std::optional<std::string> text;
+};
+
 /// The server's settings: `file` merged over the built-ins. When there's no `file`, writes the
 /// starter file there and uses the built-ins. Logs every problem; never fails.
-pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
-                                            const pianolab::logging::Log& log) {
+StartingSettings serverSettings(const std::filesystem::path& file,
+                                const pianolab::logging::Log& log) {
     namespace settings = pianolab::settings;
     using pianolab::music_io::displayPath;
     std::error_code error;
@@ -118,14 +130,15 @@ pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
         return {};
     }
     if (!exists) {
-        if (const auto written = settings::writeStarterSettings(file); written) {
-            pianolab::logging::info(log, "wrote a settings file listing every setting: {}",
-                                    displayPath(file));
-        } else {
+        const auto written = settings::writeStarterSettings(file);
+        if (!written) {
             pianolab::logging::warning(log, "{}; using the built-in settings",
                                        written.error().message);
+            return {};
         }
-        return {};
+        pianolab::logging::info(log, "wrote a settings file listing every setting: {}",
+                                displayPath(file));
+        return {.settings = {}, .text = settings::starterSettings()};
     }
     auto loaded = settings::loadSettings(file);
     if (!loaded) {
@@ -139,14 +152,18 @@ pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
     for (const auto& problem : loaded->deviceWarnings) {
         pianolab::logging::warning(log, "{}", problem.message);
     }
-    return std::move(loaded->settings);
+    return {.settings = std::move(loaded->settings), .text = std::move(loaded->text)};
 }
 
-/// `piano-lab server start`: runs the piano until Ctrl+C. Returns the exit code, 0.
+/// `piano-lab server start`: runs the piano until Ctrl+C or until stdin ends. Returns the exit
+/// code, 0.
 int runServer() {
     const auto file = logFile();
     auto standard = pianolab::logging::makeStandardLog({.file = file});
-    const pianolab::logging::Log log = standard ? *standard : pianolab::logging::makeConsoleLog();
+    // Everything at info level and above also reaches the web server, as `log` events.
+    const pianolab::logging::Log log =
+        pianolab::live::withLogEvents(standard ? *standard : pianolab::logging::makeConsoleLog(),
+                                      pianolab::logging::LogLevel::Info);
     if (standard) {
         pianolab::logging::info(log, "log file: {}", pianolab::music_io::displayPath(file));
     } else {
@@ -159,8 +176,13 @@ int runServer() {
 #ifdef SIGBREAK
     std::signal(SIGBREAK, requestStop); // Ctrl+Break, and closing the console window, on Windows
 #endif
-    const auto settings = serverSettings(settingsFile(), log);
-    pianolab::live::runServer(settings, log, stopRequested);
+    auto starting = serverSettings(settingsFile(), log);
+    pianolab::live::runService({.settings = std::move(starting.settings),
+                                .settingsFile = settingsFile(),
+                                .settingsText = std::move(starting.text),
+                                .recordingsFolder = installFolder() / "recordings",
+                                .version = PIANOLAB_VERSION},
+                               log, stopRequested);
     return 0;
 }
 

@@ -162,7 +162,7 @@ using Result = std::variant<std::monostate, SettingValues, std::vector<SettingIn
 /// written as `null`.
 [[nodiscard]] std::string errorLine(const RpcError& error);
 
-/// Event: the audio service is ready for commands. Sent once, first.
+/// Event: the audio service is ready for commands. Sent once; only `log` events come before it.
 struct Ready {
     std::string version; ///< the program's version, e.g. "0.1.0"
 };
