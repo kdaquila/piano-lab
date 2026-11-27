@@ -201,7 +201,7 @@
 
 **Includes:**
 - `package.json` at the root, listing every task: `build:server`, `test:server`, `format:server`, `lint:server`, `check:server` and `start:server`, each one TypeScript file under `scripts/server/`, and `render`
-- The plain `build`, `test`, `format`, `lint`, `check` and `start` run every part's task with npm-run-all2 (`run-s "build:*"`)
+- The plain `build`, `test`, `format`, `lint`, `check` and `start` run every part's task with npm-run-all2 (`run-s build:*`)
 - The scripts load the Visual Studio x64 environment themselves, for the programs they start only
 
 **Acceptance checks:**
