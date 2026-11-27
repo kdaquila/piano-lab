@@ -86,4 +86,16 @@ if(PIANOLAB_BUILD_AUDIO_SERVICE)
         DOWNLOAD_NAME tomlplusplus-3.5.1.tar.gz
         DOWNLOAD_ONLY YES
     )
+
+    # JSON (MIT), for the service pipe's JSON Lines, used only behind our own pipe library
+    # (audio-service/pipe), from one .cpp file. Header-only; works with exceptions off and reports
+    # errors as values. Its CI tests a newer MSVC than ours; built and tested on MSVC 19.44 before
+    # adoption (step 0.6).
+    CPMAddPackage(
+        NAME glaze
+        VERSION 9.1.0
+        URL https://github.com/stephenberry/glaze/archive/refs/tags/v9.1.0.tar.gz
+        URL_HASH SHA256=55f8a675397c505f9bee6c160e1c26b0085868f185d04d7a7727531fdbff4bd4
+        DOWNLOAD_ONLY YES
+    )
 endif()

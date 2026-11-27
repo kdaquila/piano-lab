@@ -14,7 +14,7 @@ IncludeCategories:
     Priority: 1
   - Regex: '^<pianolab/'
     Priority: 2
-  - Regex: '^<(catch2|juce_[a-z_]+|httplib|nlohmann|rigtorp)/'
+  - Regex: '^<(catch2|glaze|juce_[a-z_]+|rigtorp)/'
     Priority: 3
   - Regex: '^<[a-z_]+>$'
     Priority: 4
