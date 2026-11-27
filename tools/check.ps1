@@ -97,7 +97,7 @@ try {
         }
 
         # One clang-tidy per file, at most one per CPU at a time. Plain .NET processes rather than
-        # ForEach-Object -Parallel, so the check runs in Windows PowerShell 5.1 as well as 7.
+        # ForEach-Object -Parallel, which Windows PowerShell 5.1 doesn't have.
         $clangTidy = (Get-Command clang-tidy).Source
         $failed = @()
         $queue = [Collections.Generic.Queue[string]]::new([string[]] $sourceFiles)
