@@ -26,7 +26,7 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 
 ### 5. Polymorphism with `std::variant`, not inheritance
 - A closed set of alternatives is a `std::variant`, dispatched with `std::visit` (like a TypeScript discriminated union with a `switch`). Key models are the main example.
-- **No inheritance hierarchies.** The one exception is implementing a third-party interface that requires it, such as JUCE's audio callback. That lives in a thin adapter in `backend/`, and the rest of the code never sees it.
+- **No inheritance hierarchies.** The one exception is implementing a third-party interface that requires it, such as JUCE's audio callback. That lives in a thin adapter in `audio-service/`, and the rest of the code never sees it.
 
 ### 6. Real-time rules (the audio thread)
 - Never allocate, lock, block, throw, or do I/O while rendering. Setup functions (`prepare…`) may allocate; rendering may not. The no-allocation test enforces this.
@@ -38,10 +38,10 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 
 ### 8. Errors are recovered and reported, never fatal
 - **The music never stops for an error**, in any build. There are no aborting `assert`s, and nothing on the audio thread throws.
-- On the audio path, every problem gets a defined fallback (clamp, skip, split, silence) and is recorded in the engine's fixed-size `Diagnostics` (a counter per problem kind). The backend reads them on another thread, logs everything, and forwards them to the UI.
+- On the audio path, every problem gets a defined fallback (clamp, skip, split, silence) and is recorded in the engine's fixed-size `Diagnostics` (a counter per problem kind). The audio service reads them on another thread, logs everything, and forwards them to the web UI.
 - **Errors are values, Rust-style.** An operation that can fail returns `std::expected<T, Error>` (our `Result`), and "maybe a value" is `std::optional<T>` (our `Option`). Callers handle them in ordinary code (`if (!result) { … }`), or with the standard monadic methods.
 - **One error type**, `Error{message}`, with a clear human-readable message. No error enums or hierarchies until a real need shows up.
-- **Our code doesn't throw**, and nothing catches by exception type. The standard library can still throw in setup code (e.g. out of memory), so the backend has one catch-all at its outer boundary that logs the message and keeps going.
+- **Our code doesn't throw**, and nothing catches by exception type. The standard library can still throw in setup code (e.g. out of memory), so the audio service has one catch-all at its outer boundary that logs the message and keeps going.
 - **Tests are the strict part:** normal-use tests check that the diagnostics stay at zero, and dedicated tests trigger each problem and check both the recovery and the recorded diagnostic.
 
 ### 9. Every declaration has a doc comment
@@ -62,7 +62,7 @@ piano-lab's C++ is written in a **pragmatic functional style**: plain data, free
 - Modelling code cites its sources (paper, book, or URL) in a comment next to the decision it informs.
 
 ## Example
-From `engine/models/include/pianolab/models/sine_key.hpp`:
+From `sound-engine/models/include/pianolab/models/sine_key.hpp`:
 ```cpp
 // Plain data: configuration (defaults = built-in settings), derived coefficients, running state.
 struct SineConfig { double gain = 0.25; double attackT60 = 0.005; double releaseT60 = 0.25; /*...*/ };

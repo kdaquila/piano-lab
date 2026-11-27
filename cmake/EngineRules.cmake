@@ -1,5 +1,5 @@
-# Enforces the engine's dependency rule: nothing in engine/ may depend on JUCE, networking, JSON,
-# UI code or anything in backend/.
+# Enforces the sound engine's dependency rule: nothing in sound-engine/ may depend on JUCE,
+# networking, JSON, UI code or anything in audio-service/.
 #
 # pianolab_engine_rules(DIRECTORY <dir> ALLOW <target>=<allowed>,<allowed>... ...)
 #
@@ -54,7 +54,7 @@ function(_pianolab_check_engine_rules)
             set(allowed ${allowed_${target}})
         else()
             message(FATAL_ERROR
-                "Engine dependency rule: ${target} is not listed in engine/CMakeLists.txt. "
+                "Engine dependency rule: ${target} is not listed in sound-engine/CMakeLists.txt. "
                 "Add it to pianolab_engine_rules() with the targets it may link.")
         endif()
 
@@ -80,7 +80,8 @@ function(_pianolab_check_engine_rules)
                 if(NOT link IN_LIST allowed)
                     message(FATAL_ERROR
                         "Engine dependency rule broken: ${target} links ${link}. "
-                        "Engine targets may only link what engine/CMakeLists.txt allows them.")
+                        "Engine targets may only link what sound-engine/CMakeLists.txt "
+                        "allows them.")
                 endif()
             endforeach()
         endforeach()

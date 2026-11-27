@@ -7,7 +7,7 @@
 ```powershell
 npm run render -- <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
 ```
-Paths are relative to the folder npm was run from. Once built, `.\build\dev\backend\app\piano-lab.exe render` takes the same arguments.
+Paths are relative to the folder npm was run from. Once built, `.\build\dev\audio-service\app\piano-lab.exe render` takes the same arguments.
 - **Input:** a MIDI file (`.mid`, `.midi`) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`).
 - **Output:** a 32-bit float, mono WAV. By default it's the input's path with `.wav`, at 48 kHz.
 - **Settings:** the piano sounds as it does live. It uses the piano sections (`[tuning]`, `[sine]`, `[render]`) of `settings.toml` next to `piano-lab.exe`, if there is one, or of the file given with `--settings` instead; the summary line says which. To try a variation without touching the owner's settings, write a small file holding only what changes (e.g. `[sine]` `releaseT60 = 1.0`) and pass it with `--settings`. A `--settings` file that's missing or isn't valid TOML is an error; problems inside it are warnings. The sample rate is always `--sample-rate` (48 kHz by default), never the settings file.
@@ -55,9 +55,9 @@ Write short MusicXML: it's plain text, and the owner can open it in MuseScore to
 - For sample-exact timing ("release after exactly 0.137 s"), write a C++ test against the engine instead: notation is the wrong tool for that.
 
 ## Where it lives
-- `engine/engine-core`: the `Performance` type, its validation, and rendering until silent
-- `backend/music-io`: the MIDI and MusicXML readers and the WAV writer
-- `backend/settings`: reading `settings.toml`
-- `backend/render`: the rendering pipeline; `backend/app`: the `piano-lab render` command
+- `sound-engine/engine-core`: the `Performance` type, its validation, and rendering until silent
+- `audio-service/music-io`: the MIDI and MusicXML readers and the WAV writer
+- `audio-service/settings`: reading `settings.toml`
+- `audio-service/render`: the rendering pipeline; `audio-service/app`: the `piano-lab render` command
 
 The decisions behind it are in [the plan, step 0.3](plan/milestone-0.md#03-offline-render-to-wav).

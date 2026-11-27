@@ -40,7 +40,7 @@ if(PIANOLAB_BUILD_TESTS)
     list(APPEND CMAKE_MODULE_PATH "${Catch2_SOURCE_DIR}/extras")
 endif()
 
-if(PIANOLAB_BUILD_BACKEND)
+if(PIANOLAB_BUILD_AUDIO_SERVICE)
     # JUCE is dual-licensed (AGPLv3 or the JUCE licence); see docs/vision.md#openness.
     CPMAddPackage(
         NAME JUCE
@@ -51,9 +51,9 @@ if(PIANOLAB_BUILD_BACKEND)
         EXCLUDE_FROM_ALL YES
     )
 
-    # Logging (MIT), used only behind our own Log interface (backend/logging). Formats with the
-    # standard library's std::format instead of bundling the fmt library. On Windows, file names
-    # are UTF-16, so log paths with any characters work.
+    # Logging (MIT), used only behind our own Log interface (audio-service/logging). Formats with
+    # the standard library's std::format instead of bundling the fmt library. On Windows, file
+    # names are UTF-16, so log paths with any characters work.
     if(WIN32)
         set(pianolab_spdlog_wchar ON)
     else()
@@ -75,8 +75,8 @@ if(PIANOLAB_BUILD_BACKEND)
             "SPDLOG_INSTALL OFF"
     )
 
-    # Settings files (MIT), read only behind our own settings library (backend/settings), from one
-    # .cpp file. Header-only. GitHub's "legacy" tarball of the tag (its folder is named after the
+    # Settings files (MIT), read only behind our own settings library (audio-service/settings),
+    # from one .cpp file. Header-only. GitHub's "legacy" tarball of the tag (its folder is named after the
     # commit, marzer-tomlplusplus-efd80e0); DOWNLOAD_NAME gives it an extension CMake recognises.
     CPMAddPackage(
         NAME tomlplusplus

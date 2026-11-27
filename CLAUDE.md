@@ -7,12 +7,12 @@ A physically modelled piano. The code is written by AI agents; the owner makes t
 - [docs/plan/](docs/plan/README.md): the roadmap and the current step's plan and decisions
 
 ## Terms
-Each part is named for what it does. Step 0.6 renames the folders; until then the old folder is given in brackets.
-- **sound engine** (`sound-engine/`; today `engine/`): the piano's physics and real-time plumbing. Standard C++ only, never JUCE. The build enforces this.
-- **audio service** (`audio-service/`; today `backend/`): the C++ program that runs the sound engine: JUCE audio and MIDI, settings, recording, rendering files. It never touches the network; it talks only to the web server, over the service pipe.
+Each part is named for what it does.
+- **sound engine** (`sound-engine/`): the piano's physics and real-time plumbing. Standard C++ only, never JUCE. The build enforces this.
+- **audio service** (`audio-service/`): the C++ program that runs the sound engine: JUCE audio and MIDI, settings, recording, rendering files. It never touches the network; it talks only to the web server, over the service pipe.
 - **web server** (`web-server/`, from step 0.6): the TypeScript program on Node that serves the web UI and the web API, pairs devices, and starts the audio service. All network input is parsed here.
 - **web API** (`web-api/`, from step 0.6): the public API's TypeBox schemas, shared by the web server and the web UI; documented in `docs/web-api.md`.
-- **web UI** (`web-ui/`; today `ui/`): the React app.
+- **web UI** (`web-ui/`, from step 0.7): the React app.
 - **service pipe**: the private link between the web server and the audio service (the audio service's stdin and stdout).
 
 ## The quality gate

@@ -45,7 +45,7 @@ WarningsAsErrors: '*'
 ExtraArgs: ['-Wno-unused-command-line-argument']
 
 # Report problems in our own headers (dependencies are SYSTEM includes and never reported).
-HeaderFilterRegex: '.*[/\\](engine|backend)[/\\].*'
+HeaderFilterRegex: '.*[/\\](sound-engine|audio-service)[/\\].*'
 
 CheckOptions:
   # Naming: PascalCase types, camelCase functions and variables, lower_case namespaces.

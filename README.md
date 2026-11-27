@@ -13,18 +13,18 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 
 | Folder | What's in it |
 |---|---|
-| `engine/` | **The engine:** the piano's physics and real-time plumbing, in standard C++ only. Never depends on JUCE, networking or UI code (enforced by the build). |
-| `engine/engine-core` | Key models, the 88-key keyboard, note events and performances (what's played), offline rendering, tuning |
-| `engine/models` | Physical models: strings, hammers, bridge, soundboard |
-| `engine/calibration` | Fitting model parameters to measurements and listening tests |
-| `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `backend/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames the folders to say what each part does (`sound-engine/`, `audio-service/`, `web-ui/`) and adds the TypeScript `web-server/` and `web-api/`. |
-| `backend/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
-| `backend/server` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
-| `backend/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
-| `backend/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
-| `backend/logging` | The backend's log (console and file), with spdlog behind our own small interface |
-| `ui/` | **The UI:** a touch-first React web app (from step 0.7) |
+| `sound-engine/` | **The sound engine:** the piano's physics and real-time plumbing, in standard C++ only. Never depends on JUCE, networking or UI code (enforced by the build). |
+| `sound-engine/engine-core` | Key models, the 88-key keyboard, note events and performances (what's played), offline rendering, tuning |
+| `sound-engine/models` | Physical models: strings, hammers, bridge, soundboard |
+| `sound-engine/calibration` | Fitting model parameters to measurements and listening tests |
+| `sound-engine/rt` | Real-time plumbing shared with the audio service, such as lock-free queues |
+| `audio-service/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network: from step 0.6 the TypeScript web server (`web-server/`) drives it. |
+| `audio-service/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
+| `audio-service/live` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
+| `audio-service/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
+| `audio-service/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
+| `audio-service/logging` | The audio service's log (console and file), with spdlog behind our own small interface |
+| `web-ui/` | **The web UI:** a touch-first React app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
 | `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
@@ -71,9 +71,9 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 | `npm start` | Builds, then plays the piano live (see [Playing the piano](#playing-the-piano)) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
-Each one runs every part of the project. To run one part only, add its name: `npm run build:server` builds just the server (the C++ engine and backend). Today the server is the only part; the UI joins in a later step with its own `:ui` commands, which the plain commands then run too.
+Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service). Today that's the only part; the web server and the web UI join with their own `:web` and `:ui` commands, which the plain commands then run too.
 
-`build:server` and `test:server` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (engine and tests under AddressSanitizer, built without JUCE). For example `npm run test:server -- release`. Output goes to `build/<preset>/`.
+`build:audio` and `test:audio` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (the sound engine and its tests under AddressSanitizer, built without JUCE). For example `npm run test:audio -- release`. Output goes to `build/<preset>/`.
 
 ### The quality check
 One command runs everything: a type check of the task scripts, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
@@ -83,11 +83,11 @@ npm run check
 If it reports badly formatted files, `npm run format` fixes them.
 
 ## Playing the piano
-Plug in a MIDI keyboard, then build and start the server:
+Plug in a MIDI keyboard, then build and start the piano:
 ```powershell
 npm start
 ```
-(The program itself is `.\build\dev\backend\app\piano-lab.exe server start`.)
+(The program itself is `.\build\dev\audio-service\app\piano-lab.exe server start`.)
 It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab.log` next to `piano-lab.exe`.
 
 ### Settings
@@ -108,11 +108,11 @@ By default the piano plays through your default audio output (Windows Audio, at 
 ```powershell
 npm run render -- piece.musicxml -o piece.wav
 ```
-File names are relative to the folder you run it from. `.\build\dev\backend\app\piano-lab.exe render` does the same without building first.
+File names are relative to the folder you run it from. `.\build\dev\audio-service\app\piano-lab.exe render` does the same without building first.
 See [docs/rendering.md](docs/rendering.md) for what it supports and how AI agents use it.
 
 ## Contributing
 This is a solo project: outside contributions and pull requests aren't accepted. Forks are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
-Licensed under the [MIT License](LICENSE). The backend uses JUCE, which has its own licence terms (AGPLv3 or the JUCE licence), and its ASIO support uses Steinberg's ASIO SDK headers (the Steinberg ASIO licence or GPLv3); see [docs/vision.md](docs/vision.md#openness).
+Licensed under the [MIT License](LICENSE). The audio service uses JUCE, which has its own licence terms (AGPLv3 or the JUCE licence), and its ASIO support uses Steinberg's ASIO SDK headers (the Steinberg ASIO licence or GPLv3); see [docs/vision.md](docs/vision.md#openness).

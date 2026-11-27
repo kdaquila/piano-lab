@@ -5,9 +5,9 @@ project(piano-lab
     DESCRIPTION "A physically modelled piano"
     LANGUAGES C CXX)
 
-# The backend pulls in JUCE, which is large. Turning it off builds and tests the pure engine alone,
-# which also proves the engine never needs JUCE.
-option(PIANOLAB_BUILD_BACKEND "Build the JUCE backend (audio devices, MIDI, server)" ON)
+# The audio service pulls in JUCE, which is large. Turning it off builds and tests the pure sound
+# engine alone, which also proves the sound engine never needs JUCE.
+option(PIANOLAB_BUILD_AUDIO_SERVICE "Build the JUCE audio service (devices, MIDI, settings)" ON)
 option(PIANOLAB_BUILD_TESTS "Build the test suites" ON)
 option(PIANOLAB_ASAN "Build everything with AddressSanitizer" OFF)
 # ASIO (Windows): selectable, never the default device. JUCE bundles Steinberg's ASIO SDK headers,
@@ -37,8 +37,8 @@ if(PIANOLAB_BUILD_TESTS)
     include(Catch)
 endif()
 
-add_subdirectory(engine)
+add_subdirectory(sound-engine)
 
-if(PIANOLAB_BUILD_BACKEND)
-    add_subdirectory(backend)
+if(PIANOLAB_BUILD_AUDIO_SERVICE)
+    add_subdirectory(audio-service)
 endif()
