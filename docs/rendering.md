@@ -5,13 +5,14 @@
 ## Running it
 Build first (`cmake --build --preset dev`, after `. .\tools\dev-shell.ps1`), then:
 ```powershell
-.\build\dev\backend\app\piano-lab.exe render <input> [-o <output.wav>] [--sample-rate <hz>]
+.\build\dev\backend\app\piano-lab.exe render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
 ```
 - **Input:** a MIDI file (`.mid`, `.midi`) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`).
 - **Output:** a 32-bit float, mono WAV. By default it's the input's path with `.wav`, at 48 kHz.
+- **Settings:** the piano sounds as it does live. It uses the piano sections (`[tuning]`, `[sine]`, `[render]`) of `settings.toml` next to `piano-lab.exe`, if there is one, or of the file given with `--settings` instead; the summary line says which. To try a variation without touching the owner's settings, write a small file holding only what changes (e.g. `[sine]` `releaseT60 = 1.0`) and pass it with `--settings`. A `--settings` file that's missing or isn't valid TOML is an error; problems inside it are warnings. The sample rate is always `--sample-rate` (48 kHz by default), never the settings file.
 - **Length:** the render runs until the piano falls silent after the last note, so release tails are included. It stops 30 s after the last event at most, with a warning (usually a note that's never released).
-- **Reports:** everything skipped or fixed goes to stderr, one `warning:` line each, and a summary goes to stdout. The exit code is **0 when a WAV was written** (even with warnings) and **1 when nothing could be written** (bad arguments, an unreadable input, an unwritable output, an output that names the input, or a render too long for one WAV file: about 6 hours at 48 kHz). A failed write never leaves a half-written file behind.
-- **Deterministic:** the same input always gives a byte-identical file, so renders can be compared exactly.
+- **Reports:** everything skipped or fixed goes to stderr, one `warning:` line each, and a summary goes to stdout. The exit code is **0 when a WAV was written** (even with warnings) and **1 when nothing could be written** (bad arguments, an unreadable input or `--settings` file, an unwritable output, an output that names the input, or a render too long for one WAV file: about 6 hours at 48 kHz). A failed write never leaves a half-written file behind.
+- **Deterministic:** the same input and settings always give a byte-identical file, so renders can be compared exactly.
 - **Any file name works**, including non-Latin ones. Events later than two hours into a piece are treated as a broken file: dropped, with a warning.
 
 WAV files are git-ignored; don't commit renders.
@@ -55,6 +56,7 @@ Write short MusicXML: it's plain text, and the owner can open it in MuseScore to
 ## Where it lives
 - `engine/engine-core`: the `Performance` type, its validation, and rendering until silent
 - `backend/music-io`: the MIDI and MusicXML readers and the WAV writer
+- `backend/settings`: reading `settings.toml`
 - `backend/render`: the rendering pipeline; `backend/app`: the `piano-lab render` command
 
 The decisions behind it are in [the plan, step 0.3](plan/milestone-0.md#03-offline-render-to-wav).

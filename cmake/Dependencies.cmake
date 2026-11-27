@@ -74,4 +74,16 @@ if(PIANOLAB_BUILD_BACKEND)
             "SPDLOG_BUILD_BENCH OFF"
             "SPDLOG_INSTALL OFF"
     )
+
+    # Settings files (MIT), read only behind our own settings library (backend/settings), from one
+    # .cpp file. Header-only. GitHub's "legacy" tarball of the tag (its folder is named after the
+    # commit, marzer-tomlplusplus-efd80e0); DOWNLOAD_NAME gives it an extension CMake recognises.
+    CPMAddPackage(
+        NAME tomlplusplus
+        VERSION 3.5.1
+        URL https://codeload.github.com/marzer/tomlplusplus/legacy.tar.gz/refs/tags/v3.5.1
+        URL_HASH SHA256=1792eb7a843366f54b777d170dd70829ae3548d0440f71039a2f10c2f1fd4107
+        DOWNLOAD_NAME tomlplusplus-3.5.1.tar.gz
+        DOWNLOAD_ONLY YES
+    )
 endif()

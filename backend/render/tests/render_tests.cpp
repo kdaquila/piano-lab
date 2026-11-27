@@ -64,6 +64,9 @@ std::vector<float> readWav(const fs::path& path) {
     return {samples, samples + length};
 }
 
+/// No install folder settings file: renders use the built-in settings.
+const fs::path noInstallSettings;
+
 /// The arguments as a list, for `parseArguments`.
 std::vector<std::string_view> args(std::initializer_list<std::string_view> list) {
     return list;
@@ -89,6 +92,13 @@ TEST_CASE("options set the output and the sample rate") {
     CHECK(options->sampleRate == 44'100.0);
 }
 
+TEST_CASE("the --settings option names a settings file") {
+    const auto options = render::parseArguments(args({"in.mid", "--settings", "bright.toml"}));
+
+    REQUIRE(options);
+    CHECK(options->settings == fs::path("bright.toml"));
+}
+
 TEST_CASE("help needs no input") {
     const auto options = render::parseArguments(args({"--help"}));
 
@@ -101,6 +111,8 @@ TEST_CASE("bad arguments are errors saying what's wrong") {
     CHECK(render::parseArguments(args({"a.mid", "--fast"})).error().message ==
           "unknown option '--fast'");
     CHECK(render::parseArguments(args({"a.mid", "-o"})).error().message == "-o needs a file name");
+    CHECK(render::parseArguments(args({"a.mid", "--settings"})).error().message ==
+          "--settings needs a file name");
     CHECK(render::parseArguments(args({"a.mid", "--sample-rate", "48k"})).error().message ==
           "--sample-rate: '48k' isn't a whole number of hertz");
     CHECK(render::parseArguments(args({"a.mid", "b.mid"})).error().message ==
@@ -116,7 +128,9 @@ TEST_CASE("a score renders to a WAV that sounds, then falls silent") {
     const auto summary = render::renderFile({.input = folder / "a4.musicxml",
                                              .output = folder / "a4.wav",
                                              .sampleRate = std::nullopt,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
 
     REQUIRE(summary);
     CHECK(summary->warnings.empty());
@@ -137,11 +151,15 @@ TEST_CASE("rendering the same file twice gives byte-identical WAVs") {
     REQUIRE(render::renderFile({.input = folder / "a4.musicxml",
                                 .output = folder / "first.wav",
                                 .sampleRate = std::nullopt,
-                                .help = false}));
+                                .settings = {},
+                                .help = false},
+                               noInstallSettings));
     REQUIRE(render::renderFile({.input = folder / "a4.musicxml",
                                 .output = folder / "second.wav",
                                 .sampleRate = std::nullopt,
-                                .help = false}));
+                                .settings = {},
+                                .help = false},
+                               noInstallSettings));
 
     const auto first = mio::readBytes(folder / "first.wav");
     const auto second = mio::readBytes(folder / "second.wav");
@@ -158,7 +176,9 @@ TEST_CASE("unsupported notation is a warning, and the rest still renders") {
     const auto summary = render::renderFile({.input = folder / "grace.musicxml",
                                              .output = folder / "grace.wav",
                                              .sampleRate = std::nullopt,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
 
     REQUIRE(summary);
     REQUIRE(summary->warnings.size() == 1);
@@ -173,7 +193,9 @@ TEST_CASE("an invalid sample rate falls back to the built-in one, with a warning
     const auto summary = render::renderFile({.input = folder / "a4.musicxml",
                                              .output = folder / "a4.wav",
                                              .sampleRate = 1'000.0,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
 
     REQUIRE(summary);
     REQUIRE(summary->warnings.size() == 1);
@@ -186,7 +208,9 @@ TEST_CASE("an unreadable input or unwritable output is an error, and nothing is 
     const auto missing = render::renderFile({.input = folder / "missing.mid",
                                              .output = folder / "missing.wav",
                                              .sampleRate = std::nullopt,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
     REQUIRE_FALSE(missing);
     CHECK(missing.error().message.starts_with("can't read"));
     CHECK_FALSE(fs::exists(folder / "missing.wav"));
@@ -195,7 +219,9 @@ TEST_CASE("an unreadable input or unwritable output is an error, and nothing is 
     const auto unknown = render::renderFile({.input = folder / "notes.txt",
                                              .output = folder / "notes.wav",
                                              .sampleRate = std::nullopt,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
     REQUIRE_FALSE(unknown);
     CHECK(unknown.error().message.contains("unknown file type '.txt'"));
 
@@ -203,7 +229,9 @@ TEST_CASE("an unreadable input or unwritable output is an error, and nothing is 
     const auto unwritable = render::renderFile({.input = folder / "a4.musicxml",
                                                 .output = folder / "no-such-folder" / "a4.wav",
                                                 .sampleRate = std::nullopt,
-                                                .help = false});
+                                                .settings = {},
+                                                .help = false},
+                                               noInstallSettings);
     REQUIRE_FALSE(unwritable);
     CHECK(unwritable.error().message.starts_with("can't write"));
 }
@@ -216,7 +244,9 @@ TEST_CASE("an output that names the input another way is refused, and the input 
     const auto summary = render::renderFile({.input = folder / "a4.musicxml",
                                              .output = folder / "." / "a4.musicxml",
                                              .sampleRate = std::nullopt,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
 
     REQUIRE_FALSE(summary);
     CHECK(summary.error().message == "the output file would overwrite the input");
@@ -236,7 +266,7 @@ TEST_CASE("file names in any script work, given as UTF-8 arguments") {
     REQUIRE(options);
     CHECK(options->input == input);
 
-    const auto summary = render::renderFile(*options);
+    const auto summary = render::renderFile(*options, noInstallSettings);
 
     REQUIRE(summary);
     CHECK(fs::exists(folder / fs::path(u8"月光.wav")));
@@ -249,9 +279,10 @@ TEST_CASE("rendering over an existing WAV replaces it and leaves no temporary fi
     const render::Options options{.input = folder / "a4.musicxml",
                                   .output = folder / "a4.wav",
                                   .sampleRate = std::nullopt,
+                                  .settings = {},
                                   .help = false};
 
-    REQUIRE(render::renderFile(options));
+    REQUIRE(render::renderFile(options, noInstallSettings));
 
     CHECK_FALSE(readWav(folder / "a4.wav").empty());
     CHECK_FALSE(fs::exists(folder / "a4.wav.partial"));
@@ -266,9 +297,101 @@ TEST_CASE("a performance too long for one WAV file is refused before rendering")
     const auto summary = render::renderFile({.input = folder / "long.musicxml",
                                              .output = folder / "long.wav",
                                              .sampleRate = 384'000.0,
-                                             .help = false});
+                                             .settings = {},
+                                             .help = false},
+                                            noInstallSettings);
 
     REQUIRE_FALSE(summary);
     CHECK(summary.error().message.starts_with("the performance is too long for one WAV file"));
     CHECK_FALSE(fs::exists(folder / "long.wav"));
+}
+
+TEST_CASE("the install folder's settings change the sound, and the summary names the file") {
+    const auto folder = scratchFolder("install-settings");
+    writeText(folder / "a4.musicxml", scoreXml());
+    const render::Options builtIn{.input = folder / "a4.musicxml",
+                                  .output = folder / "built-in.wav",
+                                  .sampleRate = std::nullopt,
+                                  .settings = {},
+                                  .help = false};
+    REQUIRE(render::renderFile(builtIn, folder / "missing.toml"));
+
+    // The device sections don't matter to a render, so their problems aren't reported.
+    writeText(folder / "settings.toml",
+              "[tuning]\na4Hz = 415\n[audio]\ntype = \"ASIO\"\nbufferSize = 64.5\n");
+    render::Options tuned = builtIn;
+    tuned.output = folder / "tuned.wav";
+    const auto summary = render::renderFile(tuned, folder / "settings.toml");
+
+    REQUIRE(summary);
+    CHECK(summary->warnings.empty());
+    CHECK(summary->settings == folder / "settings.toml");
+    const auto before = mio::readBytes(folder / "built-in.wav");
+    const auto after = mio::readBytes(folder / "tuned.wav");
+    REQUIRE(before);
+    REQUIRE(after);
+    CHECK(*before != *after);
+}
+
+TEST_CASE("a file named with --settings is used instead of the install folder's settings") {
+    const auto folder = scratchFolder("settings-option");
+    writeText(folder / "a4.musicxml", scoreXml());
+    writeText(folder / "settings.toml", "[sine]\ngain = 0.5\n");
+    writeText(folder / "quiet.toml", "[sine]\ngain = 0.01\nloudness = 3\n");
+
+    const auto summary = render::renderFile({.input = folder / "a4.musicxml",
+                                             .output = folder / "a4.wav",
+                                             .sampleRate = std::nullopt,
+                                             .settings = folder / "quiet.toml",
+                                             .help = false},
+                                            folder / "settings.toml");
+
+    REQUIRE(summary);
+    CHECK(summary->settings == folder / "quiet.toml");
+    REQUIRE(summary->warnings.size() == 1);
+    CHECK(summary->warnings[0].message.ends_with(":3: unknown setting 'sine.loudness'; ignored"));
+    const auto samples = readWav(folder / "a4.wav");
+    const float peak = std::ranges::max(samples, {}, [](float s) { return std::abs(s); });
+    CHECK(std::abs(peak) < 0.02F);
+}
+
+TEST_CASE("a --settings file that can't be used is an error, and nothing is written") {
+    const auto folder = scratchFolder("settings-errors");
+    writeText(folder / "a4.musicxml", scoreXml());
+    render::Options options{.input = folder / "a4.musicxml",
+                            .output = folder / "a4.wav",
+                            .sampleRate = std::nullopt,
+                            .settings = folder / "missing.toml",
+                            .help = false};
+
+    const auto missing = render::renderFile(options, noInstallSettings);
+    REQUIRE_FALSE(missing);
+    CHECK(missing.error().message.starts_with("--settings: can't read"));
+
+    writeText(folder / "broken.toml", "[sine\n");
+    options.settings = folder / "broken.toml";
+    const auto broken = render::renderFile(options, noInstallSettings);
+    REQUIRE_FALSE(broken);
+    CHECK(broken.error().message.starts_with("--settings: " + mio::displayPath(options.settings) +
+                                             ":1:"));
+    CHECK_FALSE(fs::exists(folder / "a4.wav"));
+}
+
+TEST_CASE("a broken install settings file is a warning, and the built-ins are used") {
+    const auto folder = scratchFolder("broken-install-settings");
+    writeText(folder / "a4.musicxml", scoreXml());
+    writeText(folder / "settings.toml", "[sine\n");
+
+    const auto summary = render::renderFile({.input = folder / "a4.musicxml",
+                                             .output = folder / "a4.wav",
+                                             .sampleRate = std::nullopt,
+                                             .settings = {},
+                                             .help = false},
+                                            folder / "settings.toml");
+
+    REQUIRE(summary);
+    CHECK(summary->settings.empty());
+    REQUIRE(summary->warnings.size() == 1);
+    CHECK(summary->warnings[0].message.ends_with("; using the built-in settings"));
+    CHECK(fs::exists(folder / "a4.wav"));
 }

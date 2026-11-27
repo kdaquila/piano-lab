@@ -6,6 +6,7 @@
 #include <pianolab/music_io/files.hpp>
 #include <pianolab/music_io/wav.hpp>
 #include <pianolab/render/render.hpp>
+#include <pianolab/settings/settings.hpp>
 
 #include <charconv>
 #include <cmath>
@@ -55,6 +56,49 @@ void append(std::vector<Error>& warnings, std::vector<Error> more) {
                     std::make_move_iterator(more.end()));
 }
 
+/// The piano settings to render with, and the file they came from (empty: the built-ins).
+struct PianoSettings {
+    models::PianoConfig piano;
+    std::filesystem::path file;
+};
+
+/// The piano settings for `options` (see `renderFile`), adding any problems to `warnings`.
+/// Returns an `Error` only when the file named by `--settings` can't be used.
+std::expected<PianoSettings, Error> pianoSettings(const Options& options,
+                                                  const std::filesystem::path& installSettings,
+                                                  std::vector<Error>& warnings) {
+    if (!options.settings.empty()) {
+        auto loaded = settings::loadSettings(options.settings);
+        if (!loaded) {
+            return std::unexpected(Error{std::format("--settings: {}", loaded.error().message)});
+        }
+        append(warnings, std::move(loaded->warnings));
+        return PianoSettings{.piano = loaded->settings.piano, .file = options.settings};
+    }
+    if (installSettings.empty()) {
+        return PianoSettings{};
+    }
+    std::error_code error;
+    const bool exists = std::filesystem::exists(installSettings, error);
+    if (error) {
+        warnings.push_back(
+            Error{std::format("can't check for {}: {}; using the built-in settings",
+                              music_io::displayPath(installSettings), error.message())});
+        return PianoSettings{};
+    }
+    if (!exists) {
+        return PianoSettings{};
+    }
+    auto loaded = settings::loadSettings(installSettings);
+    if (!loaded) {
+        warnings.push_back(
+            Error{std::format("{}; using the built-in settings", loaded.error().message)});
+        return PianoSettings{};
+    }
+    append(warnings, std::move(loaded->warnings));
+    return PianoSettings{.piano = loaded->settings.piano, .file = installSettings};
+}
+
 } // namespace
 
 std::expected<Options, Error> parseArguments(std::span<const std::string_view> arguments) {
@@ -69,6 +113,11 @@ std::expected<Options, Error> parseArguments(std::span<const std::string_view> a
                 return std::unexpected(Error{std::format("{} needs a file name", argument)});
             }
             options.output = pathFromUtf8(arguments[++index]);
+        } else if (argument == "--settings") {
+            if (!hasValue) {
+                return std::unexpected(Error{"--settings needs a file name"});
+            }
+            options.settings = pathFromUtf8(arguments[++index]);
         } else if (argument == "--sample-rate") {
             if (!hasValue) {
                 return std::unexpected(Error{"--sample-rate needs a value in hertz"});
@@ -104,21 +153,28 @@ std::expected<Options, Error> parseArguments(std::span<const std::string_view> a
     return options;
 }
 
-std::expected<Summary, Error> renderFile(const Options& options) {
+std::expected<Summary, Error> renderFile(const Options& options,
+                                         const std::filesystem::path& installSettings) {
     if (options.output == options.input || sameFile(options.output, options.input)) {
         return std::unexpected(Error{"the output file would overwrite the input"});
     }
+    Summary summary{.output = options.output, .seconds = 0.0, .settings = {}, .warnings = {}};
+    auto chosen = pianoSettings(options, installSettings, summary.warnings);
+    if (!chosen) {
+        return std::unexpected(chosen.error());
+    }
+    summary.settings = chosen->file;
+
     auto reading = music_io::readMusicFile(options.input);
     if (!reading) {
         return std::unexpected(reading.error());
     }
-    Summary summary{.output = options.output, .seconds = 0.0, .warnings = {}};
     append(summary.warnings, std::move(reading->warnings));
 
     auto performance = engine_core::validate(reading->performance);
     append(summary.warnings, std::move(performance.errors));
 
-    models::PianoConfig config;
+    models::PianoConfig config = chosen->piano;
     if (options.sampleRate) {
         config.render.sampleRate = *options.sampleRate;
     }

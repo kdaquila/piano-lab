@@ -4,6 +4,7 @@
 add_subdirectory(juce)
 add_subdirectory(logging)
 add_subdirectory(music-io)
+add_subdirectory(settings)
 add_subdirectory(server)
 add_subdirectory(render)
 add_subdirectory(app)

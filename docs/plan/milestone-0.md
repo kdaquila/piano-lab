@@ -13,8 +13,8 @@
 | [0.1](#01-c-project-skeleton) | C++ project skeleton: CMake, JUCE, tests, linting | Done ([#3](https://github.com/kdaquila/piano-lab/pull/3)) |
 | [0.2](#02-engine-core-port) | Engine core: key model, 88-key keyboard, sine, headless tests | Done ([#4](https://github.com/kdaquila/piano-lab/pull/4)) |
 | [0.3](#03-offline-render-to-wav) | Offline render to WAV: MIDI or MusicXML in, WAV out, no devices | Done ([#5](https://github.com/kdaquila/piano-lab/pull/5)) |
-| [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | In progress |
-| [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | Not started |
+| [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
+| [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
 | [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
 | [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
 | [0.8](#08-latency-measurement) | Latency measurement across Windows audio modes | Not started |
@@ -132,7 +132,7 @@
 
 **Follow-ups:**
 - The `asan` preset skips the backend, so the readers don't get AddressSanitizer runs yet.
-- `piano-lab render` takes configuration (including `silenceThreshold`, probably in dB) from step 0.5.
+- `piano-lab render` takes configuration (including `silenceThreshold`) from step 0.5: done there, through `settings.toml` and `--settings`. Setting it in dB is left for later.
 
 ## 0.4 Piano server core
 
@@ -145,7 +145,7 @@
 - **The live pipeline:** each MIDI input's thread turns raw MIDI into engine events and hands them to the audio thread through its own lock-free queue. Each audio block takes every waiting event and applies it at the start of the block, in arrival order across inputs; renders; copies the output to the recorder while recording; and publishes the engine's diagnostics when they change.
 - **The audio core is free of JUCE and devices** (`backend/server`: `audio_core`, `live_midi`, `recorder`, `monitor`), so tests drive it block by block the way a sound card would. `server.cpp` is the thin JUCE layer: device callbacks and the main loop.
 - **Recording machinery:** audio thread → lock-free queue → recorder thread → a streamed 32-bit float WAV (written as `.partial`, renamed when finished). Each recording has a session number, so audio from a stopped recording never lands in the next. Starting and stopping recordings is driven by the control API from 0.6.
-- **Logging:** our own `Log` interface with spdlog behind it: a coloured console and a rotating file (`%APPDATA%\piano-lab\logs\piano-lab.log`, 5 MB × 3). The main thread (JUCE's message thread) checks ten times a second for news from the audio side (engine diagnostics, dropped notes or recording samples, the first pedal message) and logs it. Device problems are logged and never stop the server: with no audio device it runs silently, and MIDI inputs that fail to open are skipped.
+- **Logging:** our own `Log` interface with spdlog behind it: a coloured console and a rotating file (`%APPDATA%\piano-lab\logs\piano-lab.log`, 5 MB × 3; since 0.5, `logs\piano-lab.log` in the install folder). The main thread (JUCE's message thread) checks ten times a second for news from the audio side (engine diagnostics, dropped notes or recording samples, the first pedal message) and logs it. Device problems are logged and never stop the server: with no audio device it runs silently, and MIDI inputs that fail to open are skipped.
 
 **Acceptance checks:**
 - Turning raw MIDI messages into engine events is unit-tested
@@ -167,14 +167,32 @@
 
 ## 0.5 Backend configuration
 
-**What:** users' own settings, merged over the built-in configuration.
+**What:** users' own settings, merged over the built-in configuration: the piano's settings, and the audio and MIDI devices.
 
 **Includes:**
-- User settings holding only what the user changed, merged over the built-in `PianoConfig` and then validated with the engine's `validate`. Loading returns `std::expected<…, Error>`, and every problem is logged rather than stopping the app.
-- Device settings: the audio device type (e.g. ASIO), device, sample rate and buffer size, and which MIDI inputs to open. 0.4 opens the defaults; this is where they become the user's choice.
+- **`settings.toml` in the install folder**, next to `piano-lab.exe`. It holds only what the user changed: anything missing uses the built-in value, and having no file at all is normal.
+- **`backend/settings`:** reads the file through the engine's `Field` tables, so every setting is still declared once, and merges it over the built-in `PianoConfig`; the engine's `validate` then checks it as before. Loading returns `std::expected<…, Error>` (an `Error` only when the file can't be read or isn't valid TOML); everything else (unknown settings, wrong types, values out of range) is reported with its line and the built-in value is used.
+- **Device settings:** `[audio]` `type` (e.g. `"ASIO"`), `output`, `sampleRate` and `bufferSize`, and `[midi]` `inputs`. 0.4 opened the defaults; this is where they become the user's choice.
+- **A starter file:** when `server start` finds no `settings.toml`, it writes one listing every setting as a commented-out line with its description, range and built-in value. Generated from the same tables, so it can't go stale.
+- **`piano-lab render`** uses the piano part of the same file, or another file with `--settings <file>`, and says which it used.
+- **Logs move to the install folder** (`logs\piano-lab.log`), so the program keeps all its files in one place.
 
-**Open questions:**
-- Format and location: a config file (JSON with comments, TOML, …), `.env` / environment variables, or both; and the parsing library (reflect-cpp or nlohmann/json; see the 0.2 discussion)
+**Acceptance checks:**
+- Reading is unit-tested: values merge over the built-ins; unknown settings, wrong types and bad TOML are reported with their line; out-of-range values fall back with the engine's own message
+- The starter file, with every line uncommented, reads back as exactly the built-in settings with nothing reported
+- Choosing devices is unit-tested without JUCE: a named type, output or MIDI input that isn't there is reported and the default used; no inputs listed opens them all
+- `render --settings` changes the sound (e.g. `tuning.a4Hz`); a missing `--settings` file is an error, and a broken install `settings.toml` is a warning
+- Manual: choosing ASIO, an output, a buffer size and a MIDI input in `settings.toml` opens exactly those, and a misspelled one is logged and the default used
+
+**Decisions:**
+- **Format: TOML, parsed with toml++ 3.5.1** (MIT, header-only, TOML 1.1). Comments make it friendly to edit by hand. toml++ runs with `TOML_EXCEPTIONS=0`, so parsing returns a result instead of throwing, and it lives in one `.cpp` behind our own `settings` interface ([dependency rules](../vision.md#dependency-rules)). Considered: JSON with comments (one parser shared with the 0.6 protocol) and toml11.
+- **Location: the install folder, never `%APPDATA%`.** The program keeps everything it writes next to itself, logs included. An install under Program Files isn't writable without admin rights, which matters for the logs now and for saving settings later.
+- **No environment variables.** It's a desktop app with no server deployments, so one file is enough.
+- **Read only, plus a starter file.** The program never rewrites the user's file in 0.5. Saving arrives with the control API (0.6) and will reuse the starter file's writer: the whole file is generated from the tables, with the user's values uncommented. That also sidesteps TOML libraries not keeping comments when they rewrite a file.
+- **The file's sections are the engine's own names** (`[render]`, `[tuning]`, `[sine]`) plus `[audio]` and `[midi]`, so the engine's messages ("sine.gain: …") name exactly what's in the file. `render.sampleRate` isn't in the file: the audio device decides it live, and `--sample-rate` for `render`. The audio device's wish is `audio.sampleRate`.
+- **Devices are named as Windows shows them**, e.g. `type = "ASIO"`, `output = "Focusrite USB ASIO"`, `inputs = ["Digital Piano"]`; an empty name means the default, and an `output` named without a `type` picks the type that has it. A named device that isn't there is logged, listing what is, and the default is used (a device that's there but won't open, e.g. ASIO busy in another program, falls back to the default output at the same sample rate and buffer size); if none of the listed MIDI inputs is there, every input opens. Two identical devices can't be told apart yet; an optional identifier can be added later without breaking files.
+- **A sample rate or buffer size the device can't do** is logged and the device's closest one used (JUCE's own choice). `bufferSize = 0` means the device's own.
+- **`render` sounds like the live piano:** it uses the install folder's `settings.toml` (only its piano sections) unless `--settings <file>` names another. A `--settings` file that's missing or broken stops the render (nothing is written), because the caller asked for it specifically; a broken install file is a warning and the built-ins are used.
 
 ## 0.6 Control server
 
