@@ -58,6 +58,8 @@ That opens the door to things we'd never build ourselves:
 | **DAW plugin** | Producers and home studios (VST3 / CLAP, AU on macOS) | Later |
 | **Small boards** (e.g. Raspberry Pi) | Tinkerers wanting a tiny appliance | Later, via low-cost quality presets |
 
+The owner's own setup is a headless box built into a piano-style cabinet, with a phone or tablet on the music shelf as the only screen: see [docs/hardware](hardware/README.md). It reaches piano-lab over the local network, not `localhost`, which is why network mode (step 0.9) matters.
+
 ## Platforms
 - **Windows first.** It's where most users are, and the development machine.
 - **Linux and macOS later.** The stack is chosen to be cross-platform from day one, so this is porting and testing, not a rewrite.
