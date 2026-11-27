@@ -2,13 +2,13 @@
 
 > **Re-planned 2026-11-21** for the new stack (C++ engine, C++/JUCE backend, React UI) and architecture (local backend, web UI over the local network). See [vision.md](../vision.md) for the terms *engine*, *backend* and *UI*. Each step's open questions get settled, one at a time, before that step starts.
 
-> **Re-planned again 2026-11-27:** the network-facing part moved out of C++ into a TypeScript **backend**, the UI became touch-first for the desktop, the network became opt-in with pairing, and a threat-model step comes before the network opens. See [vision.md](../vision.md#security-first).
+> **Re-planned again 2026-11-27:** the network-facing part moved out of C++ into a TypeScript **web server**, the web UI became touch-first for the desktop, the network became opt-in with pairing, and a threat-model step comes before the network opens. See [vision.md](../vision.md#security-first).
 >
-> **Terms changed with it:** *backend* now means the TypeScript server that handles web requests (`backend/`), and the C++ program it runs is the **service** (`service/`). Steps 0.1–0.5 below were written with the old terms, where "backend" and `backend/` mean today's service; the folder is renamed in step 0.6.
+> **Terms changed with it**, to say what each part does: the **sound engine** (was *engine*, `engine/` → `sound-engine/`), the **audio service** (the C++ program, was *backend*, `backend/` → `audio-service/`), the **web server** (new, `web-server/`), the **web API** (new, `web-api/`) and the **web UI** (was *UI*, `ui/` → `web-ui/`). Steps 0.1–0.5 below were written with the old terms; the folders are renamed in step 0.6.
 
-**Goal:** a walking skeleton through every layer of the architecture. MIDI in → one sine per note → audio out, with the backend serving a touch-first React UI on the same computer, **and, with network mode on, to a paired phone on the same network**. It's deliberately simple: a sine is a one-mode modal string, so this is the real engine at its simplest, not throwaway code.
+**Goal:** a walking skeleton through every layer of the architecture. MIDI in → one sine per note → audio out, with the web server serving a touch-first web UI on the same computer, **and, with network mode on, to a paired phone on the same network**. It's deliberately simple: a sine is a one-mode modal string, so this is the real engine at its simplest, not throwaway code.
 
-**Done when:** on a Windows laptop, you can play your MIDI keyboard and hear a clean sine per note; adjust volume and release from the touch UI on the laptop, and from a paired phone with network mode on; and we have measured key-to-sound latency for each Windows audio mode.
+**Done when:** on a Windows laptop, you can play your MIDI keyboard and hear a clean sine per note; adjust volume and release from the web UI by touch on the laptop, and from a paired phone with network mode on; and we have measured key-to-sound latency for each Windows audio mode.
 
 ## Steps
 
@@ -20,8 +20,8 @@
 | [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
 | [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | Done ([#9](https://github.com/kdaquila/piano-lab/pull/9)) |
-| [0.6](#06-backend-and-control-api) | Backend and control API: TypeScript backend, service behind a pipe, API v0, settings saving (localhost only) | Not started |
-| [0.7](#07-react-ui) | React UI: touch-first, desktop first, served by the backend | Not started |
+| [0.6](#06-web-server-and-web-api) | Web server and web API: TypeScript web server, audio service behind the service pipe, API v0, settings saving (localhost only) | Not started |
+| [0.7](#07-web-ui) | Web UI: touch-first, desktop first, served by the web server | Not started |
 | [0.8](#08-threat-model-and-hardening) | Threat model and hardening, before the network opens | Not started |
 | [0.9](#09-network-mode-and-pairing) | Network mode and pairing: opt-in, a paired phone as a remote | Not started |
 | [0.10](#010-latency-measurement) | Latency measurement across Windows audio modes | Not started |
@@ -72,7 +72,7 @@
 - Tools to install at the start of the step if missing: LLVM (clang-format, clang-tidy), CMake, Ninja.
 - **Editor: VS Code + clangd.** CMake presets export `compile_commands.json` so clangd (and any agent tooling) sees the exact build. The repo ships `.clang-format`, `.clang-tidy` and recommended VS Code extensions. Visual Studio 2022 stays available as the heavy-duty debugger.
 
-- **The engine is JUCE-free: standard C++ only.** JUCE lives only in `backend/` (since the 2026-11-27 re-plan: in the service, `service/`; networking lives only in the TypeScript backend). This keeps engine tests fast (no JUCE build), keeps the physics engine portable (render CLI, future Python package, plugin, other platforms) and cleanly MIT, with JUCE's terms only touching the backend binary. Utilities we'd otherwise take from JUCE (FIFOs, smoothed values) are small standard-C++ components.
+- **The engine is JUCE-free: standard C++ only.** JUCE lives only in `backend/` (since the 2026-11-27 re-plan: in the audio service, `audio-service/`; networking lives only in the TypeScript web server). This keeps engine tests fast (no JUCE build), keeps the physics engine portable (render CLI, future Python package, plugin, other platforms) and cleanly MIT, with JUCE's terms only touching the backend binary. Utilities we'd otherwise take from JUCE (FIFOs, smoothed values) are small standard-C++ components.
 
 ## 0.2 Engine core port
 
@@ -146,7 +146,7 @@
 **What:** the backend running the engine live, against real devices through JUCE: `piano-lab server start`.
 
 **Includes:**
-- **One program, `piano-lab`, with subcommands for its roles:** `piano-lab render` (the 0.3 renderer, moved in; `piano-lab-render` is gone) and `piano-lab server start`. `server stop` and `server status` arrive in 0.6 as clients of the control API (since the 2026-11-27 re-plan, the user-facing `piano-lab` command belongs to the TypeScript backend; see 0.6).
+- **One program, `piano-lab`, with subcommands for its roles:** `piano-lab render` (the 0.3 renderer, moved in; `piano-lab-render` is gone) and `piano-lab server start`. `server stop` and `server status` arrive in 0.6 as clients of the control API (since the 2026-11-27 re-plan, the user-facing `piano-lab` command belongs to the TypeScript web server; see 0.6).
 - **`server start`** runs in the foreground until Ctrl+C, with zero-setup defaults and no options: the first device type's default audio output (Windows Audio, shared, on Windows) at 48 kHz if the device allows (otherwise its own rate), with the device's own buffer size, and **every MIDI input**.
 - **ASIO compiled in** (the `PIANOLAB_ASIO` build option, on by default on Windows), using the ASIO SDK headers bundled with JUCE. Never the default device; selectable from 0.5.
 - **The live pipeline:** each MIDI input's thread turns raw MIDI into engine events and hands them to the audio thread through its own lock-free queue. Each audio block takes every waiting event and applies it at the start of the block, in arrival order across inputs; renders; copies the output to the recorder while recording; and publishes the engine's diagnostics when they change.
@@ -221,72 +221,73 @@
 - **`npm run check` type-checks the scripts** with `tsc` (TypeScript and `@types/node` as exact-pinned dev dependencies).
 - **Naming:** plain names run every part; `:server` (and from 0.7, `:ui`) run one.
 
-## 0.6 Backend and control API
+## 0.6 Web server and web API
 
-**What:** the backend: a TypeScript program that serves the UI and the public control API on `localhost`, and runs the service behind a pipe. C++ never touches the network.
+**What:** the web server: a TypeScript program that serves the web UI and the public web API on `localhost`, and runs the audio service behind the service pipe. C++ never touches the network.
 
 **Includes:**
-- **`backend/`**, an npm workspace: TypeScript on Node with Fastify, `@fastify/websocket` and TypeBox. It starts the service as a child process, restarts it if it dies (logging why), and stops it on exit.
-- **`protocol/`**, an npm workspace holding the TypeBox schemas of the public API, used by the backend now and the UI from 0.7
-- **The service ↔ backend pipe:** the service reads commands from its stdin and writes events to its stdout, in a small fixed format. A pipe-reader thread hands commands to the audio thread through lock-free queues, as the MIDI inputs already do. Audio and MIDI never pass through the backend.
+- **The new names on disk, as the step's first commit:** `engine/` → `sound-engine/`, `backend/` → `audio-service/` (its `server/` library, which would clash with the web server, becomes `live/`), `ui/` → `web-ui/`, and the npm task suffix `:server` → `:audio` (e.g. `npm run test:audio -- release`). Docs, rules and scripts follow. The C++ include paths (`<pianolab/engine_core/…>`) stay.
+- **`web-server/`**, an npm workspace: TypeScript on Node with Fastify, `@fastify/websocket` and TypeBox. It starts the audio service as a child process, restarts it if it dies (logging why), and stops it on exit.
+- **`web-api/`**, an npm workspace holding the TypeBox schemas of the public API, used by the web server now and the web UI from 0.7
+- **The service pipe:** the audio service reads commands from its stdin and writes events to its stdout, in a small fixed format. A pipe-reader thread hands commands to the audio thread through lock-free queues, as the MIDI inputs already do. Audio and MIDI never pass through the web server.
 - **API v0** (HTTP for requests, one WebSocket for live traffic):
   - requests: status, stop, list devices, read and save settings, start and stop a recording (the 0.4 recorder machinery)
   - commands over the WebSocket: notes on and off (on-screen keys), live setting changes (volume and release first)
   - events over the WebSocket: active keys and an output level meter (throttled to about 30 Hz), logs and the engine's diagnostics, and the current settings and state
 - **Saving settings from the app** (auto-save; see Decisions)
-- **The user-facing `piano-lab` command becomes the backend's:** `piano-lab start` (backend and service together), `piano-lab stop` and `piano-lab status` (clients of the API), and `piano-lab render` (handed to the service binary). The exact command names are settled in the step.
-- **`docs/protocol.md`:** the public, versioned API, written for other people's frontends, scripts and AI tools
-- Developer commands: `:backend` tasks (`build:backend`, `test:backend`, `lint:backend`, ...) picked up by the plain `run-s` aggregates
+- **The user-facing `piano-lab` command becomes the web server's:** `piano-lab start` (web server and audio service together), `piano-lab stop` and `piano-lab status` (clients of the API), and `piano-lab render` (handed to the audio service binary). The exact command names are settled in the step.
+- **`docs/web-api.md`:** the public, versioned web API, written for other people's frontends, scripts and AI tools
+- Developer commands: `:web` tasks for the web server and the web API package (`build:web`, `test:web`, `lint:web`, ...) picked up by the plain `run-s` aggregates
 - **The compiler's exploit mitigations** on our C++ (`/guard:cf`, `/CETCOMPAT`), checked by the build
 
 **Acceptance checks:**
 - The API's schemas are tested: valid messages pass, and malformed, oversized or unknown input is rejected with clear errors before any handler runs
-- The pipe format is unit-tested on both sides, and the service's reader survives garbage and truncated input (fuzzed in 0.8)
+- The service pipe format is unit-tested on both sides, and the audio service's reader survives garbage and truncated input (fuzzed in 0.8)
 - A scripted test client on `localhost` can connect, change the volume and see the level change
 - A flood of control messages causes no audio glitches
 - Nothing listens on any address but `localhost`, and requests failing the `Host`/`Origin` checks are refused
 - Settings changed through the API reach `settings.toml`; a hand-edited file is backed up to `settings.toml.bak` before being overwritten
 
 **Decisions:**
-- **A TypeScript backend instead of a C++ web server**, so no C++ ever parses network input. Memory-safety bugs in C++ parsing untrusted input are the classic way to break into a program, and AI-assisted attackers are good at finding them. Fastify validates every route against its TypeBox schema before our code runs; `ws` (under `@fastify/websocket`) handles WebSocket framing. Considered: cpp-httplib with nlohmann/json (the original plan), Rust (memory-safe too, but a third language for a marginal gain), bare `node:http` (validation by hand is where bugs hide), Express (no built-in schema validation), tRPC (assumes TypeScript clients, while our API is public).
-- **The service runs as the backend's child process over stdin/stdout**, the simplest local IPC with no socket and no port. The service only ever sees commands the backend already validated.
-- **The settings stay in C++.** The `Field` tables, validation, `settings.toml` reading and the starter-file writer already live there, so saving does too; the backend passes changes through and reports the service's own messages. Whether the API is generic and driven by the field tables (the service describes every setting to the backend) or uses specific messages per control is settled at the start of the step.
-- **JSON over HTTP for requests, one fire-and-forget WebSocket for live traffic.** HTTP carries everything that waits for its own answer: listing devices, reading and saving settings, starting and stopping recordings, status, stop. It's "REST" in the casual sense: `GET` for reads, `POST` for anything that changes or does something, JSON in and out, one error shape, coarse status codes. The WebSocket has no request/response: clients send commands (notes, live setting changes), and the backend broadcasts events (active keys, level, logs, the current state) to every client, so a change made in one place shows up everywhere. A single ordered socket keeps on-screen note-ons and note-offs in order. Considered: WebSocket only with JSON-RPC 2.0 (sound, but nothing is `curl`-able and the CLI gets heavier) and HTTP with Server-Sent Events (on-screen notes over separate `POST`s can arrive out of order).
+- **A TypeScript web server instead of a C++ web server**, so no C++ ever parses network input. Memory-safety bugs in C++ parsing untrusted input are the classic way to break into a program, and AI-assisted attackers are good at finding them. Fastify validates every route against its TypeBox schema before our code runs; `ws` (under `@fastify/websocket`) handles WebSocket framing. Considered: cpp-httplib with nlohmann/json (the original plan), Rust (memory-safe too, but a third language for a marginal gain), bare `node:http` (validation by hand is where bugs hide), Express (no built-in schema validation), tRPC (assumes TypeScript clients, while our API is public).
+- **The audio service runs as the web server's child process over stdin/stdout**, the simplest local IPC with no socket and no port. The audio service only ever sees commands the web server already validated.
+- **The settings stay in C++.** The `Field` tables, validation, `settings.toml` reading and the starter-file writer already live there, so saving does too; the web server passes changes through and reports the audio service's own messages. Whether the API is generic and driven by the field tables (the audio service describes every setting to the web server) or uses specific messages per control is settled at the start of the step.
+- **JSON over HTTP for requests, one fire-and-forget WebSocket for live traffic.** HTTP carries everything that waits for its own answer: listing devices, reading and saving settings, starting and stopping recordings, status, stop. It's "REST" in the casual sense: `GET` for reads, `POST` for anything that changes or does something, JSON in and out, one error shape, coarse status codes. The WebSocket has no request/response: clients send commands (notes, live setting changes), and the web server broadcasts events (active keys, level, logs, the current state) to every client, so a change made in one place shows up everywhere. A single ordered socket keeps on-screen note-ons and note-offs in order. Considered: WebSocket only with JSON-RPC 2.0 (sound, but nothing is `curl`-able and the CLI gets heavier) and HTTP with Server-Sent Events (on-screen notes over separate `POST`s can arrive out of order).
 - **Settings auto-save.** Changes apply live and are written to `settings.toml` about a second after the last one, so a slider drag is one write. The whole file is regenerated from the field tables (the 0.5 starter-file writer), written to a temporary file and renamed into place.
 - **piano-lab owns `settings.toml` while it runs.** It's read at startup only; to edit it by hand, stop piano-lab first. Safety net: if the file changed on disk since it was last read or written, it's copied to `settings.toml.bak` (and logged) before being overwritten. Considered: reloading hand edits live with a field-by-field merge (more machinery than one user needs) and a separate private working copy (two sources of truth).
 - **`localhost` only in this step.** On this computer, the browser checks below are the protection, and local clients need no token. Network mode and pairing come in 0.9, after the threat model.
 - **Browser protections, always on:** requests whose `Host` isn't `localhost`, a loopback address or (from 0.9) one of our own addresses are rejected (DNS rebinding), cross-site `Origin`s are rejected on `POST` and on the WebSocket handshake, and `POST` bodies must be `application/json`. Websites open in the user's browser can reach `localhost`, so this matters even with no network mode.
-- **The backend's dependencies are few, exact-pinned and installed without install scripts**, per the [dependency rules](../vision.md#dependency-rules).
+- **The web server's dependencies are few, exact-pinned and installed without install scripts**, per the [dependency rules](../vision.md#dependency-rules).
 
-## 0.7 React UI
+## 0.7 Web UI
 
-**What:** the first real UI, served by the backend, designed for touch first on the desktop.
+**What:** the first real UI, served by the web server, designed for touch first on the desktop.
 
 **Includes:**
-- The UI project (see Decisions below), **designed for touch first**: a laptop touchscreen or a touch monitor on the piano's music stand, working just as well with a mouse, and scaling down to a phone screen for 0.9
+- The web UI project (see Decisions below), **designed for touch first**: a laptop touchscreen or a touch monitor on the piano's music stand, working just as well with a mouse, and scaling down to a phone screen for 0.9
 - A keyboard view that lights up active notes and can be played by touch, **multi-touch** so chords work
 - Volume and release controls, audio and MIDI device selection
-- A **log and error panel** showing what the service reports (the engine's diagnostics, device problems)
+- A **log and error panel** showing what the audio service reports (the engine's diagnostics, device problems)
 - Reconnects automatically if the connection drops
-- The backend serves the built UI and opens it when piano-lab starts, so there's nothing separate to install; it can also be installed as an app from the browser (a PWA, since `localhost` is a secure context)
+- The web server serves the built web UI and opens it when piano-lab starts, so there's nothing separate to install; it can also be installed as an app from the browser (a PWA, since `localhost` is a secure context)
 
 **Acceptance checks:**
 - Works with touch (including chords on the on-screen keyboard) and with a mouse, on a laptop screen and a large monitor
 - UI controls change the sound in real time, without audible glitches while playing
-- Component tests (Vitest + RTL) for the UI logic, and at least one Playwright test, including touch input, driving the UI against a running piano-lab
+- Component tests (Vitest + RTL) for the web UI logic, and at least one Playwright test, including touch input, driving the web UI against a running piano-lab
 - `oxlint` and `oxfmt --check` are clean
 
 **Decisions:**
 - **Touch first:** large hit targets, nothing that needs hover, gestures where they help, and Pointer Events so every finger is tracked separately. Browser touch adds latency (step 0.10 measures it), so the MIDI keyboard stays the way to *play*; the on-screen keyboard is for trying things out.
 - **A modern, customisable interface:** users decide what's on screen (e.g. show, hide or move the log panel), rather than the app offering fixed modes. 0.7 lays the groundwork; full customisation can grow over later milestones.
-- **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `package.json`, and the plain `build`, `test`, `check`, ... pick them up through their `run-s` globs. `ui/` becomes an npm workspace of the root `package.json`.
+- **Developer commands:** the web UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `package.json`, and the plain `build`, `test`, `check`, ... pick them up through their `run-s` globs. `web-ui/` becomes an npm workspace of the root `package.json`.
 - **Stack:** npm; TypeScript + React + Vite; **MUI** (Material UI) as the component library, styled with the `sx` prop. Other skins (e.g. Tailwind) are a fun later option, but prototyping shouldn't require building a design system.
 - **State: Zustand**, with a disciplined, **normalized** store: flat collections keyed by id, no deep state trees.
-- **Protocol types: the shared TypeBox schemas** from `protocol/`. Incoming messages are validated at the boundary, with the same definitions the backend enforces, so there's one definition of the public API and no cross-language schema pipeline. `docs/protocol.md` stays the prose reference for other clients; JSON Schema export from TypeBox can be added later if MCP or third-party frontends need it.
+- **Web API types: the shared TypeBox schemas** from `web-api/`. Incoming messages are validated at the boundary, with the same definitions the web server enforces, so there's one definition of the public API and no cross-language schema pipeline. `docs/web-api.md` stays the prose reference for other clients; JSON Schema export from TypeBox can be added later if MCP or third-party frontends need it.
 - **Lint and format: oxlint + oxfmt.**
 - **Tests:** Vitest + React Testing Library for units and components; Playwright for end-to-end.
 - **Playwright MCP** is set up for agents, so they can open, drive and check the real UI while developing.
-- **The backend opens the UI in the user's default browser** (`http://localhost:…`), and the browser can install it as an app with its own window. It makes the architecture visible: the piano is a local program, and the UI is just one client of it. No native window.
+- **The web server opens the web UI in the user's default browser** (`http://localhost:…`), and the browser can install it as an app with its own window. It makes the architecture visible: the piano is a local program, and the web UI is just one client of it. No native window.
 
 ## 0.8 Threat model and hardening
 
@@ -294,9 +295,9 @@
 
 **Includes:**
 - `docs/security.md`: what we protect (above all the user's computer; also their files and settings), who from (websites in the user's browser, other software on the computer, devices on the same network, people who know the Wi-Fi password, shared and public networks), and which defence covers each threat, or why a gap is accepted
-- A review of what 0.6 and 0.7 built against it: the browser protections, input limits, file paths, privileges, the backend's dependencies, and the trust given to local clients
+- A review of what 0.6 and 0.7 built against it: the browser protections, input limits, file paths, privileges, the web server's dependencies, and the trust given to local clients
 - The design of 0.9's pairing and network mode, checked against the threat model
-- **Fuzz tests** for what the service parses (the pipe format, MIDI and MusicXML files), alongside the existing AddressSanitizer runs, and for the backend's schemas
+- **Fuzz tests** for what the audio service parses (the service pipe format, MIDI and MusicXML files), alongside the existing AddressSanitizer runs, and for the web server's schemas
 - A habit for dependency security advisories (both C++ and npm), and a way for users to get fixes quickly
 
 **Acceptance checks:**
@@ -312,9 +313,9 @@
 
 **Includes:**
 - `[server] listen = "local"` (the default) or `"network"`, and `[server] port`, in `settings.toml`
-- **Pairing:** with network mode on, the terminal shows a short code at startup; a device on the network enters it once (a pairing screen in the UI; a QR code is optional). Codes are single-use and expire, and repeated wrong guesses lock pairing. A paired client gets a long random token, sent as an `HttpOnly`, `SameSite=Strict` cookie or as an `Authorization: Bearer` header (for scripts and other non-browser clients), required on every request and on the WebSocket handshake. Paired devices are remembered (hashed) in a file in the install folder, and can be unpaired.
-- **Before pairing, almost nothing answers:** the UI's static files and the pairing endpoint only
-- The UI works on a phone screen (layout checked in 0.7) and shows the pairing screen when needed
+- **Pairing:** with network mode on, the terminal shows a short code at startup; a device on the network enters it once (a pairing screen in the web UI; a QR code is optional). Codes are single-use and expire, and repeated wrong guesses lock pairing. A paired client gets a long random token, sent as an `HttpOnly`, `SameSite=Strict` cookie or as an `Authorization: Bearer` header (for scripts and other non-browser clients), required on every request and on the WebSocket handshake. Paired devices are remembered (hashed) in a file in the install folder, and can be unpaired.
+- **Before pairing, almost nothing answers:** the web UI's static files and the pairing endpoint only
+- The web UI works on a phone screen (layout checked in 0.7) and shows the pairing screen when needed
 - **A user-manual section on network mode:** piano-lab is a local instrument for tinkerers, so it's as safe as the network it's on. What's encrypted (by the Wi-Fi, not by piano-lab), who you're trusting (everyone with the Wi-Fi password, and every device on the network), and how to harden it: the laptop's Mobile Hotspot as a private network for just the laptop and phone, or a separate network on the router (noting that guest networks usually stop their devices reaching each other)
 
 **Acceptance checks:**
@@ -325,7 +326,7 @@
 **Decisions:**
 - **Opt-in, not the default**, so nobody who doesn't need it is exposed. For tinkerers, it's one line in `settings.toml`.
 - **Clients on this computer don't pair**: they're trusted with the browser protections from 0.6 (revisited by the 0.8 threat model). Clients from the network always pair.
-- **Traffic isn't encrypted.** Nothing piano-lab sends is private, and on a home network WPA2/WPA3 keeps it from anyone without the Wi-Fi password; the manual says so plainly. Considered during 0.6's discussion, for later if needed: the backend's own self-signed certificate, with an optional throwaway, name-constrained CA installed on the phone (the leading option; it also makes the UI installable as an app on the phone); Plex-style certificates, a native phone app, or a hosted UI over WebRTC (all need fees or a cloud service, against [vision.md](../vision.md#distribution)); and Tailscale (an optional extra for people who already use it).
+- **Traffic isn't encrypted.** Nothing piano-lab sends is private, and on a home network WPA2/WPA3 keeps it from anyone without the Wi-Fi password; the manual says so plainly. Considered during 0.6's discussion, for later if needed: the web server's own self-signed certificate, with an optional throwaway, name-constrained CA installed on the phone (the leading option; it also makes the web UI installable as an app on the phone); Plex-style certificates, a native phone app, or a hosted UI over WebRTC (all need fees or a cloud audio service, against [vision.md](../vision.md#distribution)); and Tailscale (an optional extra for people who already use it).
 - **Windows Firewall asks** the first time network mode is used; allowing private networks only keeps piano-lab off public Wi-Fi.
 
 ## 0.10 Latency measurement

@@ -7,10 +7,13 @@ A physically modelled piano. The code is written by AI agents; the owner makes t
 - [docs/plan/](docs/plan/README.md): the roadmap and the current step's plan and decisions
 
 ## Terms
-- **engine** (`engine/`): the piano's physics and real-time plumbing. Standard C++ only, never JUCE. The build enforces this.
-- **service**: the C++ program that runs the engine: JUCE audio and MIDI, settings, recording. It never touches the network; it talks only to the backend, over a pipe. Today it lives in `backend/`; step 0.6 renames the folder to `service/`.
-- **backend** (`backend/` from step 0.6): the TypeScript server on Node that handles web requests: it serves the UI and the public control API, pairs devices, and starts the service. All network input is parsed here.
-- **UI** (`ui/`): the React web app.
+Each part is named for what it does. Step 0.6 renames the folders; until then the old folder is given in brackets.
+- **sound engine** (`sound-engine/`; today `engine/`): the piano's physics and real-time plumbing. Standard C++ only, never JUCE. The build enforces this.
+- **audio service** (`audio-service/`; today `backend/`): the C++ program that runs the sound engine: JUCE audio and MIDI, settings, recording, rendering files. It never touches the network; it talks only to the web server, over the service pipe.
+- **web server** (`web-server/`, from step 0.6): the TypeScript program on Node that serves the web UI and the web API, pairs devices, and starts the audio service. All network input is parsed here.
+- **web API** (`web-api/`, from step 0.6): the public API's TypeBox schemas, shared by the web server and the web UI; documented in `docs/web-api.md`.
+- **web UI** (`web-ui/`; today `ui/`): the React app.
+- **service pipe**: the private link between the web server and the audio service (the audio service's stdin and stdout).
 
 ## The quality gate
 `npm run check` type-checks the task scripts, checks formatting, builds, tests, lints and runs AddressSanitizer. It must pass before work is handed over. The other commands (`npm run build`, `npm test`, `npm run format`, ...) are listed in the README; they live in `scripts/`.

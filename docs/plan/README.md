@@ -14,7 +14,7 @@ The MVP is the **all-in-one Windows desktop**: a Windows laptop (ideally a touch
 
 | Milestone | Goal | Status |
 |---|---|---|
-| [0: Skeleton](milestone-0.md) | C++ engine and JUCE service: MIDI in → one sine per note → audio out, with a TypeScript backend serving the touch-first React UI, and opt-in network mode with pairing | In progress |
+| [0: Skeleton](milestone-0.md) | C++ sound engine and JUCE audio service: MIDI in → one sine per note → audio out, with a TypeScript web server serving the touch-first web UI, and opt-in network mode with pairing | In progress |
 | 1: Decay | Damped modes, headless metric tests, audio analysis tools for agents (pitch, partials, decay; spectrogram images) | Not started |
 | 2: Partials | Several modes per note | Not started |
 | 3: Stiffness | Inharmonic partials | Not started |
@@ -30,7 +30,7 @@ The MVP is the **all-in-one Windows desktop**: a Windows laptop (ideally a touch
 - **Bluetooth MIDI input**, for keyboards and apps that speak BLE-MIDI
 - **One-click private hotspot:** the laptop's own Wi-Fi network for playing away from home
 - **Headless appliance polish:** run as a background service, auto-start on boot, no screen needed
-- **MCP server:** lets a user's own AI assistant control and voice the piano through the public control API
+- **MCP server:** lets a user's own AI assistant control and voice the piano through the public web API
 - **Quality presets for weaker hardware:** trade model detail and polyphony for CPU
 - **Linux and macOS builds**
 - **DAW plugins:** VST3 / CLAP, AU on macOS
@@ -41,4 +41,4 @@ Only the current milestone is planned in detail. Later ones get broken down when
 ## History
 - **2026-11-21: stack changed from Rust to C++/JUCE + React**, and the architecture became a local backend with a web UI reachable over the local network. Steps 0.1–0.2 were first built in Rust (PRs on GitHub); their design decisions carry over, as listed in [vision.md](../vision.md#what-carries-over-from-the-rust-prototype).
 - **2026-11-27: developer commands moved to npm** ([step 0.6 prelude](milestone-0.md#06-prelude-developer-commands-through-npm)). `package.json` at the root lists the tasks, each a TypeScript file under `scripts/` run directly by Node 24.15+ and type-checked by `tsc`. `build:server` and the like run one part; the plain names (`build`, `test`, `check`, ...) run every part through npm-run-all2. They load the Visual Studio environment themselves, which replaced `tools/dev-shell.ps1` and `tools/check.ps1`.
-- **2026-11-27: security first, a TypeScript backend, and source-first distribution.** Nothing piano-lab handles is private, so security means keeping anyone from getting into the user's computer through it. The network-facing part moved out of C++ into a TypeScript server, and the terms changed with it: the **backend** is now that server (Fastify, TypeBox, `ws`), and the C++ program it runs as a child process behind a pipe is the **service** (`backend/` becomes `service/` in step 0.6). cpp-httplib and nlohmann/json left the plan. The UI became touch-first for the desktop; the network became opt-in, with pairing, after a threat-model step. Milestone 0's steps became 0.6 backend and control API, 0.7 UI, 0.8 threat model, 0.9 network mode and pairing, 0.10 latency. Distribution will be the public source plus prebuilt binaries through npm, with no paid code signing or app stores ([vision.md](../vision.md#distribution)).
+- **2026-11-27: security first, a TypeScript web server, and source-first distribution.** Nothing piano-lab handles is private, so security means keeping anyone from getting into the user's computer through it. The network-facing part moved out of C++ into a TypeScript **web server** (Fastify, TypeBox, `ws`), which runs the C++ program as a child process behind a pipe; cpp-httplib and nlohmann/json left the plan. The parts were renamed to say what they do: **sound engine**, **audio service**, **web server**, **web API** and **web UI** (folders renamed in step 0.6). The web UI became touch-first for the desktop; the network became opt-in, with pairing, after a threat-model step. Milestone 0's steps became 0.6 web server and web API, 0.7 web UI, 0.8 threat model, 0.9 network mode and pairing, 0.10 latency. Distribution will be the public source plus prebuilt binaries through npm, with no paid code signing or app stores ([vision.md](../vision.md#distribution)).

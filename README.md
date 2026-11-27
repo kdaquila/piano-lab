@@ -18,7 +18,7 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `engine/models` | Physical models: strings, hammers, bridge, soundboard |
 | `engine/calibration` | Fitting model parameters to measurements and listening tests |
 | `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `backend/` | **The service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames this folder to `service/` and puts the TypeScript backend in `backend/`. |
+| `backend/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames the folders to say what each part does (`sound-engine/`, `audio-service/`, `web-ui/`) and adds the TypeScript `web-server/` and `web-api/`. |
 | `backend/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
 | `backend/server` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
 | `backend/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
