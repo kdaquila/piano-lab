@@ -10,11 +10,11 @@ This folder holds the working plan for piano-lab: what gets built, in what order
 
 ## Milestones
 
-The MVP is the **all-in-one Windows desktop**: a Windows laptop running the backend, with the web UI in a local window and on a phone over the local network.
+The MVP is the **all-in-one Windows desktop**: a Windows laptop (ideally a touchscreen) running piano-lab, with the touch-first web UI on the same machine and, with network mode on, on a paired phone over the local network.
 
 | Milestone | Goal | Status |
 |---|---|---|
-| [0: Skeleton](milestone-0.md) | C++ engine and JUCE backend: MIDI in → one sine per note → audio out, with the React UI served over the local network | In progress |
+| [0: Skeleton](milestone-0.md) | C++ engine and JUCE backend: MIDI in → one sine per note → audio out, with a TypeScript gateway serving the touch-first React UI, and opt-in network mode with pairing | In progress |
 | 1: Decay | Damped modes, headless metric tests, audio analysis tools for agents (pitch, partials, decay; spectrogram images) | Not started |
 | 2: Partials | Several modes per note | Not started |
 | 3: Stiffness | Inharmonic partials | Not started |
@@ -25,7 +25,7 @@ The MVP is the **all-in-one Windows desktop**: a Windows laptop running the back
 | 8: Presets, A/B, calibration wizard | Completes the MVP | Not started |
 
 ### After the MVP (unordered)
-- **mDNS discovery** (`piano.local`), so a phone finds the piano without an IP address (pairing itself moved into step 0.6)
+- **mDNS discovery** (`piano.local`), so a phone finds the piano without an IP address (pairing itself is in step 0.9)
 - **Distribution:** prebuilt binaries through npm (`npx piano-lab`), built in public CI with npm provenance; an "install with your AI agent" guide; no paid signing ([vision.md](../vision.md#distribution))
 - **Bluetooth MIDI input**, for keyboards and apps that speak BLE-MIDI
 - **One-click private hotspot:** the laptop's own Wi-Fi network for playing away from home
@@ -41,4 +41,4 @@ Only the current milestone is planned in detail. Later ones get broken down when
 ## History
 - **2026-11-21: stack changed from Rust to C++/JUCE + React**, and the architecture became a local backend with a web UI reachable over the local network. Steps 0.1–0.2 were first built in Rust (PRs on GitHub); their design decisions carry over, as listed in [vision.md](../vision.md#what-carries-over-from-the-rust-prototype).
 - **2026-11-27: developer commands moved to npm** ([step 0.6 prelude](milestone-0.md#06-prelude-developer-commands-through-npm)). `package.json` at the root lists the tasks, each a TypeScript file under `scripts/` run directly by Node 24.15+ and type-checked by `tsc`. `build:server` and the like run one part; the plain names (`build`, `test`, `check`, ...) run every part through npm-run-all2. They load the Visual Studio environment themselves, which replaced `tools/dev-shell.ps1` and `tools/check.ps1`.
-- **2026-11-27: security first, and source-first distribution.** Pairing moved from after the MVP into step 0.6, and step 0.9 (threat model and defences) was added. Distribution will be the public source plus prebuilt binaries through npm, with no paid code signing or app stores ([vision.md](../vision.md#distribution)).
+- **2026-11-27: security first, a TypeScript gateway, and source-first distribution.** Nothing piano-lab handles is private, so security means keeping anyone from getting into the user's computer through it. The network-facing part moved out of C++ into a TypeScript **gateway** (Fastify, TypeBox, `ws`), with the backend as its child process behind a pipe; cpp-httplib and nlohmann/json left the plan. The UI became touch-first for the desktop; the network became opt-in, with pairing, after a threat-model step. Milestone 0's steps became 0.6 gateway, 0.7 UI, 0.8 threat model, 0.9 network mode and pairing, 0.10 latency. Distribution will be the public source plus prebuilt binaries through npm, with no paid code signing or app stores ([vision.md](../vision.md#distribution)).

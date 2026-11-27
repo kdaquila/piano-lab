@@ -8,7 +8,8 @@ A physically modelled piano. The code is written by AI agents; the owner makes t
 
 ## Terms
 - **engine** (`engine/`): the piano's physics and real-time plumbing. Standard C++ only, never JUCE. The build enforces this.
-- **backend** (`backend/`): the program that runs the engine: JUCE audio and MIDI, and later the web server and protocol.
+- **backend** (`backend/`): the C++ program that runs the engine: JUCE audio and MIDI, settings, recording. It never touches the network; it talks only to the gateway, over a pipe.
+- **gateway** (`gateway/`, from step 0.6): the TypeScript program on Node that serves the UI and the public control API, pairs devices, and starts the backend. All network input is parsed here.
 - **UI** (`ui/`): the React web app.
 
 ## The quality gate

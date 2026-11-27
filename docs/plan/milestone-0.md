@@ -2,9 +2,11 @@
 
 > **Re-planned 2026-11-21** for the new stack (C++ engine, C++/JUCE backend, React UI) and architecture (local backend, web UI over the local network). See [vision.md](../vision.md) for the terms *engine*, *backend* and *UI*. Each step's open questions get settled, one at a time, before that step starts.
 
-**Goal:** a walking skeleton through every layer of the new architecture. MIDI in → one sine per note → audio out, with the backend serving a React UI that works in a local window **and on a phone on the same network**. It's deliberately simple: a sine is a one-mode modal string, so this is the real engine at its simplest, not throwaway code.
+> **Re-planned again 2026-11-27:** the network-facing part moved out of C++ into a TypeScript **gateway**, the UI became touch-first for the desktop, the network became opt-in with pairing, and a threat-model step comes before the network opens. See [vision.md](../vision.md#security-first).
 
-**Done when:** on a Windows laptop, you can play your MIDI keyboard and hear a clean sine per note; adjust volume and release from your phone; and we have measured key-to-sound latency for each Windows audio mode.
+**Goal:** a walking skeleton through every layer of the architecture. MIDI in → one sine per note → audio out, with the gateway serving a touch-first React UI on the same computer, **and, with network mode on, to a paired phone on the same network**. It's deliberately simple: a sine is a one-mode modal string, so this is the real engine at its simplest, not throwaway code.
+
+**Done when:** on a Windows laptop, you can play your MIDI keyboard and hear a clean sine per note; adjust volume and release from the touch UI on the laptop, and from a paired phone with network mode on; and we have measured key-to-sound latency for each Windows audio mode.
 
 ## Steps
 
@@ -16,10 +18,11 @@
 | [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
 | [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | Done ([#9](https://github.com/kdaquila/piano-lab/pull/9)) |
-| [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
-| [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
-| [0.8](#08-latency-measurement) | Latency measurement across Windows audio modes | Not started |
-| [0.9](#09-threat-model-and-defences) | Threat model and defences: what we protect, from whom, and how | Not started |
+| [0.6](#06-gateway-and-control-api) | Gateway and control API: TypeScript gateway, backend behind a pipe, API v0, settings saving (localhost only) | Not started |
+| [0.7](#07-react-ui) | React UI: touch-first, desktop first, served by the gateway | Not started |
+| [0.8](#08-threat-model-and-hardening) | Threat model and hardening, before the network opens | Not started |
+| [0.9](#09-network-mode-and-pairing) | Network mode and pairing: opt-in, a paired phone as a remote | Not started |
+| [0.10](#010-latency-measurement) | Latency measurement across Windows audio modes | Not started |
 
 ---
 
@@ -67,7 +70,7 @@
 - Tools to install at the start of the step if missing: LLVM (clang-format, clang-tidy), CMake, Ninja.
 - **Editor: VS Code + clangd.** CMake presets export `compile_commands.json` so clangd (and any agent tooling) sees the exact build. The repo ships `.clang-format`, `.clang-tidy` and recommended VS Code extensions. Visual Studio 2022 stays available as the heavy-duty debugger.
 
-- **The engine is JUCE-free: standard C++ only.** JUCE (and cpp-httplib, nlohmann/json) live only in `backend/`. This keeps engine tests fast (no JUCE build), keeps the physics engine portable (render CLI, future Python package, plugin, other platforms) and cleanly MIT, with JUCE's terms only touching the backend binary. Utilities we'd otherwise take from JUCE (FIFOs, smoothed values) are small standard-C++ components.
+- **The engine is JUCE-free: standard C++ only.** JUCE lives only in `backend/` (and since the 2026-11-27 re-plan, networking lives only in the TypeScript gateway). This keeps engine tests fast (no JUCE build), keeps the physics engine portable (render CLI, future Python package, plugin, other platforms) and cleanly MIT, with JUCE's terms only touching the backend binary. Utilities we'd otherwise take from JUCE (FIFOs, smoothed values) are small standard-C++ components.
 
 ## 0.2 Engine core port
 
@@ -141,7 +144,7 @@
 **What:** the backend running the engine live, against real devices through JUCE: `piano-lab server start`.
 
 **Includes:**
-- **One program, `piano-lab`, with subcommands for its roles:** `piano-lab render` (the 0.3 renderer, moved in; `piano-lab-render` is gone) and `piano-lab server start`. `server stop` and `server status` arrive in 0.6 as clients of the control API.
+- **One program, `piano-lab`, with subcommands for its roles:** `piano-lab render` (the 0.3 renderer, moved in; `piano-lab-render` is gone) and `piano-lab server start`. `server stop` and `server status` arrive in 0.6 as clients of the control API (since the 2026-11-27 re-plan, the user-facing `piano-lab` command is the gateway's; see 0.6).
 - **`server start`** runs in the foreground until Ctrl+C, with zero-setup defaults and no options: the first device type's default audio output (Windows Audio, shared, on Windows) at 48 kHz if the device allows (otherwise its own rate), with the device's own buffer size, and **every MIDI input**.
 - **ASIO compiled in** (the `PIANOLAB_ASIO` build option, on by default on Windows), using the ASIO SDK headers bundled with JUCE. Never the default device; selectable from 0.5.
 - **The live pipeline:** each MIDI input's thread turns raw MIDI into engine events and hands them to the audio thread through its own lock-free queue. Each audio block takes every waiting event and applies it at the start of the block, in arrival order across inputs; renders; copies the output to the recorder while recording; and publishes the engine's diagnostics when they change.
@@ -216,101 +219,126 @@
 - **`npm run check` type-checks the scripts** with `tsc` (TypeScript and `@types/node` as exact-pinned dev dependencies).
 - **Naming:** plain names run every part; `:server` (and from 0.7, `:ui`) run one.
 
-## 0.6 Control server
+## 0.6 Gateway and control API
 
-**What:** the backend serves the UI and talks to it over the local network.
+**What:** the gateway: a TypeScript program that serves the UI and the public control API on `localhost`, and runs the backend behind a pipe. C++ never touches the network.
 
 **Includes:**
-- An embedded HTTP server that serves the UI's static files, and a WebSocket endpoint for control
-- **Protocol v0:** UI → backend: volume, release time, note on/off (on-screen keys), device selection. Backend → UI: active keys and an output level meter, throttled to around 30 Hz.
-- **Recording and devices through the API:** start and stop a recording (the recorder machinery from 0.4), list the available audio and MIDI devices, and choose them
-- `piano-lab server stop` and `piano-lab server status`: small clients of the API
-- Messages cross from the server thread to the audio thread through lock-free queues; audio never goes over the network
-- Listening on the local network so a phone can connect, with **pairing** before any device can control it (discovery comes after the MVP)
-- **Saving settings from the app:** changes made through the API are written back to `settings.toml`
-- **The protocol is a public, documented API**, not an internal detail: written up in `docs/protocol.md`, with a version number, so other people's frontends, scripts and AI tools can use it
+- **`gateway/`**, an npm workspace: TypeScript on Node with Fastify, `@fastify/websocket` and TypeBox. It starts the backend as a child process, restarts it if it dies (logging why), and stops it on exit.
+- **`protocol/`**, an npm workspace holding the TypeBox schemas of the public API, used by the gateway now and the UI from 0.7
+- **The backend ↔ gateway pipe:** the backend reads commands from its stdin and writes events to its stdout, in a small fixed format. A pipe-reader thread hands commands to the audio thread through lock-free queues, as the MIDI inputs already do. Audio and MIDI never pass through the gateway.
+- **API v0** (HTTP for requests, one WebSocket for live traffic):
+  - requests: status, stop, list devices, read and save settings, start and stop a recording (the 0.4 recorder machinery)
+  - commands over the WebSocket: notes on and off (on-screen keys), live setting changes (volume and release first)
+  - events over the WebSocket: active keys and an output level meter (throttled to about 30 Hz), logs and the engine's diagnostics, and the current settings and state
+- **Saving settings from the app** (auto-save; see Decisions)
+- **The user-facing `piano-lab` command becomes the gateway's:** `piano-lab start` (gateway and backend together), `piano-lab stop` and `piano-lab status` (clients of the API), and `piano-lab render` (handed to the backend binary). The exact command names are settled in the step.
+- **`docs/protocol.md`:** the public, versioned API, written for other people's frontends, scripts and AI tools
+- Developer commands: `:gateway` tasks (`build:gateway`, `test:gateway`, `lint:gateway`, ...) picked up by the plain `run-s` aggregates
+- **The compiler's exploit mitigations** on our C++ (`/guard:cf`, `/CETCOMPAT`), checked by the build
 
 **Acceptance checks:**
-- Protocol messages are unit-tested (encode/decode, validation of bad input)
-- A scripted test client can connect, change volume and see the level change
+- The API's schemas are tested: valid messages pass, and malformed, oversized or unknown input is rejected with clear errors before any handler runs
+- The pipe format is unit-tested on both sides, and the backend's reader survives garbage and truncated input (fuzzed in 0.8)
+- A scripted test client on `localhost` can connect, change the volume and see the level change
 - A flood of control messages causes no audio glitches
+- Nothing listens on any address but `localhost`, and requests failing the `Host`/`Origin` checks are refused
+- Settings changed through the API reach `settings.toml`; a hand-edited file is backed up to `settings.toml.bak` before being overwritten
 
 **Decisions:**
-- **cpp-httplib** for HTTP + WebSocket, contained behind our own `ControlServer` interface per the [dependency rules](../vision.md#dependency-rules). CivetWeb is the fallback if its newer WebSocket support gives trouble.
-
-- **JSON messages, using nlohmann/json.** A public API used by other people's frontends, scripts and AI tools (MCP) has to be human-readable and debuggable, and at ~30 messages a second binary formats buy nothing. Each message is a plain C++ struct mapped to JSON. Malformed network input is rejected with clear errors. nlohmann/json is contained in the protocol code only, per the dependency rules. A published JSON Schema for the API can follow later (useful for MCP, third-party frontends and generating the UI's TypeScript types).
-
-- **JSON over HTTP for requests, one fire-and-forget WebSocket for live traffic.** HTTP carries everything that waits for its own answer: listing devices, reading and saving settings, starting and stopping recordings, status, stop. It's "REST" in the casual sense: `GET` for reads, `POST` for anything that changes or does something, JSON in and out, one error shape, coarse status codes. The WebSocket has no request/response: clients send commands (notes, live setting changes), and the backend broadcasts events (active keys, level, logs, the current state) to every client, so a change made on the phone shows up on the laptop too. A single ordered socket keeps on-screen note-ons and note-offs in order. Considered: WebSocket only with JSON-RPC 2.0 (sound, but nothing is `curl`-able and the CLI gets heavier) and HTTP with Server-Sent Events (on-screen notes over separate `POST`s can arrive out of order). The messages don't depend on how they're carried, so TLS or another transport can be added behind `ControlServer` later.
+- **A TypeScript gateway instead of a C++ web server**, so no C++ ever parses network input. Memory-safety bugs in C++ parsing untrusted input are the classic way to break into a program, and AI-assisted attackers are good at finding them. Fastify validates every route against its TypeBox schema before our code runs; `ws` (under `@fastify/websocket`) handles WebSocket framing. Considered: cpp-httplib with nlohmann/json (the original plan), Rust (memory-safe too, but a third language for a marginal gain), bare `node:http` (validation by hand is where bugs hide), Express (no built-in schema validation), tRPC (assumes TypeScript clients, while our API is public).
+- **The backend runs as the gateway's child process over stdin/stdout**, the simplest local IPC with no socket and no port. The backend only ever sees commands the gateway already validated.
+- **The settings stay in C++.** The `Field` tables, validation, `settings.toml` reading and the starter-file writer already live there, so saving does too; the gateway passes changes through and reports the backend's own messages. Whether the API is generic and driven by the field tables (the backend describes every setting to the gateway) or uses specific messages per control is settled at the start of the step.
+- **JSON over HTTP for requests, one fire-and-forget WebSocket for live traffic.** HTTP carries everything that waits for its own answer: listing devices, reading and saving settings, starting and stopping recordings, status, stop. It's "REST" in the casual sense: `GET` for reads, `POST` for anything that changes or does something, JSON in and out, one error shape, coarse status codes. The WebSocket has no request/response: clients send commands (notes, live setting changes), and the gateway broadcasts events (active keys, level, logs, the current state) to every client, so a change made in one place shows up everywhere. A single ordered socket keeps on-screen note-ons and note-offs in order. Considered: WebSocket only with JSON-RPC 2.0 (sound, but nothing is `curl`-able and the CLI gets heavier) and HTTP with Server-Sent Events (on-screen notes over separate `POST`s can arrive out of order).
 - **Settings auto-save.** Changes apply live and are written to `settings.toml` about a second after the last one, so a slider drag is one write. The whole file is regenerated from the field tables (the 0.5 starter-file writer), written to a temporary file and renamed into place.
-- **The server owns `settings.toml` while it runs.** It's read at startup only; to edit it by hand, stop the server first. Safety net: if the file changed on disk since the server last read or wrote it, it's copied to `settings.toml.bak` (and logged) before being overwritten. Considered: reloading hand edits live with a field-by-field merge (more machinery than one user needs) and a separate private working copy (two sources of truth).
-- **Pairing in this step, not after the MVP**, so there's never an open API to tear down later. The terminal shows a short code at startup; a phone enters it once; the local browser pairs itself through a one-time token in the URL the backend opens. Codes are single-use and expire, and repeated wrong guesses lock pairing. A paired client gets a long random token, sent as an `HttpOnly`, `SameSite=Strict` cookie or as an `Authorization: Bearer` header (for scripts and other non-browser clients), and required on every request and on the WebSocket handshake. Paired devices are remembered (hashed) in a file next to the exe. `piano-lab server stop` and `status` read a local token file that only the local user can read. Details (code length, a QR code, unpairing) are settled during the step.
-- **Browser protections, always on:** requests whose `Host` isn't `localhost`, an IP address or our own name are rejected (DNS rebinding), cross-site `Origin`s are rejected on `POST` and on the WebSocket handshake, and `POST` bodies must be `application/json`.
-- **Listening on the network by default**, with `[server] listen = "network"` or `"local"` and `[server] port` in `settings.toml`. Windows Firewall asks on first run; allowing private networks only keeps it off public Wi-Fi.
-- **Traffic isn't encrypted yet.** On a home network, Wi-Fi encryption (WPA2/WPA3) covers it from everyone without the Wi-Fi password. `docs/protocol.md` says so, and step 0.9 decides on transport security.
+- **piano-lab owns `settings.toml` while it runs.** It's read at startup only; to edit it by hand, stop piano-lab first. Safety net: if the file changed on disk since it was last read or written, it's copied to `settings.toml.bak` (and logged) before being overwritten. Considered: reloading hand edits live with a field-by-field merge (more machinery than one user needs) and a separate private working copy (two sources of truth).
+- **`localhost` only in this step.** On this computer, the browser checks below are the protection, and local clients need no token. Network mode and pairing come in 0.9, after the threat model.
+- **Browser protections, always on:** requests whose `Host` isn't `localhost`, a loopback address or (from 0.9) one of our own addresses are rejected (DNS rebinding), cross-site `Origin`s are rejected on `POST` and on the WebSocket handshake, and `POST` bodies must be `application/json`. Websites open in the user's browser can reach `localhost`, so this matters even with no network mode.
+- **The gateway's dependencies are few, exact-pinned and installed without install scripts**, per the [dependency rules](../vision.md#dependency-rules).
 
 ## 0.7 React UI
 
-**What:** the first real UI, served by the backend.
+**What:** the first real UI, served by the gateway, designed for touch first on the desktop.
 
 **Includes:**
-- The UI project (see Decisions below), **designed for a phone screen first**, scaling up to desktop
-- A keyboard view that lights up active notes and can be tapped to play
+- The UI project (see Decisions below), **designed for touch first**: a laptop touchscreen or a touch monitor on the piano's music stand, working just as well with a mouse, and scaling down to a phone screen for 0.9
+- A keyboard view that lights up active notes and can be played by touch, **multi-touch** so chords work
 - Volume and release controls, audio and MIDI device selection
 - A **log and error panel** showing what the backend reports (the engine's diagnostics, device problems)
 - Reconnects automatically if the connection drops
-- The backend bundles the built UI, so there's nothing separate to install
+- The gateway serves the built UI and opens it when piano-lab starts, so there's nothing separate to install; it can also be installed as an app from the browser (a PWA, since `localhost` is a secure context)
 
 **Acceptance checks:**
-- Works from a phone on the same Wi-Fi and from the laptop itself
+- Works with touch (including chords on the on-screen keyboard) and with a mouse, on a laptop screen and a large monitor
 - UI controls change the sound in real time, without audible glitches while playing
-- Component tests (Vitest + RTL) for the UI logic, and at least one Playwright test driving the UI against a running backend
+- Component tests (Vitest + RTL) for the UI logic, and at least one Playwright test, including touch input, driving the UI against a running piano-lab
 - `oxlint` and `oxfmt --check` are clean
 
 **Decisions:**
+- **Touch first:** large hit targets, nothing that needs hover, gestures where they help, and Pointer Events so every finger is tracked separately. Browser touch adds latency (step 0.10 measures it), so the MIDI keyboard stays the way to *play*; the on-screen keyboard is for trying things out.
 - **A modern, customisable interface:** users decide what's on screen (e.g. show, hide or move the log panel), rather than the app offering fixed modes. 0.7 lays the groundwork; full customisation can grow over later milestones.
 - **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `package.json`, and the plain `build`, `test`, `check`, ... pick them up through their `run-s` globs. `ui/` becomes an npm workspace of the root `package.json`.
 - **Stack:** npm; TypeScript + React + Vite; **MUI** (Material UI) as the component library, styled with the `sx` prop. Other skins (e.g. Tailwind) are a fun later option, but prototyping shouldn't require building a design system.
 - **State: Zustand**, with a disciplined, **normalized** store: flat collections keyed by id, no deep state trees.
-- **Protocol types: TypeBox** validators for every message, with TypeScript types derived from them. Incoming backend messages are validated at the boundary.
-- **No cross-language schema pipeline.** C++ message structs are hand-written; the protocol is documented in prose in `docs/protocol.md`. In a small monorepo where agents change both sides in one PR, the C++ protocol tests plus Playwright end-to-end tests are the safety net. JSON Schema export from TypeBox can be added later if MCP or third-party frontends need it.
+- **Protocol types: the shared TypeBox schemas** from `protocol/`. Incoming messages are validated at the boundary, with the same definitions the gateway enforces, so there's one definition of the public API and no cross-language schema pipeline. `docs/protocol.md` stays the prose reference for other clients; JSON Schema export from TypeBox can be added later if MCP or third-party frontends need it.
 - **Lint and format: oxlint + oxfmt.**
 - **Tests:** Vitest + React Testing Library for units and components; Playwright for end-to-end.
 - **Playwright MCP** is set up for agents, so they can open, drive and check the real UI while developing.
-- **On the laptop, the backend opens the UI in the user's default browser** (`http://localhost:…`). It's the same experience as on the phone, and it makes the architecture visible to users: the piano is a local service, and the UI is just one client of it. No native window for now.
+- **The gateway opens the UI in the user's default browser** (`http://localhost:…`), and the browser can install it as an app with its own window. It makes the architecture visible: the piano is a local service, and the UI is just one client of it. No native window.
 
-## 0.8 Latency measurement
+## 0.8 Threat model and hardening
 
-**What:** measure real key-to-sound latency and write it down.
-
-**Includes:**
-- Each Windows device type JUCE offers (shared, low-latency shared, exclusive, ASIO if available) at several buffer sizes
-- A physical loopback or recorded tap test (method decided when we get here)
-- Results written up in `docs/`
-
-**Acceptance checks:**
-- A measured number per mode and buffer size, compared against the 5–10 ms target
-- A recommendation for the default mode
-
-## 0.9 Threat model and defences
-
-**What:** a written threat model for piano-lab, and a decided defence for each threat. Milestone 0 is when the backend first listens on the network, so this is where security gets looked at as a whole instead of one step at a time.
+**What:** a written threat model for piano-lab and a decided defence for each threat, done **before** the network opens in 0.9, so network mode is built against it instead of reviewed after the fact.
 
 **Includes:**
-- `docs/security.md`: what we protect (the user's PC, their files and settings, the music), who from (malicious websites in the user's browser, devices on the same network, people who know the Wi-Fi password, shared and public networks), and which defence covers each threat, or why a gap is accepted for now
-- A review of what 0.6 and 0.7 built against it: pairing and tokens, browser protections, the network default, input limits, file paths, privileges
-- Hardening the network-facing code: fuzz tests for the protocol parsing, alongside the existing AddressSanitizer runs
-- A decision on transport security for clients on other devices (phone), tested on a real Android phone and iPhone. The routes considered during 0.6's discussion:
-  - **The backend's own self-signed certificate (leading).** It works at once after clicking past a browser warning; installing a CA on the phone makes it trusted for good. The CA must be a throwaway (its private key deleted right after signing the server's certificate) and name-constrained, so it can never vouch for other sites. A trusted connection also makes the UI installable as a PWA, and enables wake lock and Service Workers on the phone. Open: what happens when the laptop's address changes.
-  - Plex-style certificates (needs a DNS and certificate service of ours), a native phone app pinning the certificate (app-store fees), a hosted UI using WebRTC (needs hosting and internet to connect), and Tailscale (an optional extra for people who use it). All but Tailscale break the no-fees, no-cloud rule ([vision.md](../vision.md#distribution)).
-  - Not encrypting: fine on a home network behind WPA2/WPA3; not on shared Wi-Fi.
-- A habit for dependency security advisories and a way for users to get fixes quickly
+- `docs/security.md`: what we protect (above all the user's computer; also their files and settings), who from (websites in the user's browser, other software on the computer, devices on the same network, people who know the Wi-Fi password, shared and public networks), and which defence covers each threat, or why a gap is accepted
+- A review of what 0.6 and 0.7 built against it: the browser protections, input limits, file paths, privileges, the gateway's dependencies, and the trust given to local clients
+- The design of 0.9's pairing and network mode, checked against the threat model
+- **Fuzz tests** for what the backend parses (the pipe format, MIDI and MusicXML files), alongside the existing AddressSanitizer runs, and for the gateway's schemas
+- A habit for dependency security advisories (both C++ and npm), and a way for users to get fixes quickly
 
 **Acceptance checks:**
 - Every threat in `docs/security.md` names its defence or its accepted gap
 - Fuzz tests run in `npm run check`, or in a separate documented command if they're too slow for it
 - Any change the review finds is made, or added to the plan
 
-**Why here:** security-first rather than bolted on. AI-assisted attacks make small network-facing apps worth attacking, and the costliest harm isn't eavesdropping but a bug in our network code that lets someone on the network run code on the user's PC.
+**Why here:** security-first rather than bolted on. AI-assisted attacks make small network-facing apps worth attacking, and nothing piano-lab handles is private, so the harm to prevent is someone using a bug in piano-lab to get into the user's computer.
+
+## 0.9 Network mode and pairing
+
+**What:** opt-in network mode, so a phone, a tablet or scripts on other machines can use piano-lab after pairing, with an honest user-manual section on what that means.
+
+**Includes:**
+- `[server] listen = "local"` (the default) or `"network"`, and `[server] port`, in `settings.toml`
+- **Pairing:** with network mode on, the terminal shows a short code at startup; a device on the network enters it once (a pairing screen in the UI; a QR code is optional). Codes are single-use and expire, and repeated wrong guesses lock pairing. A paired client gets a long random token, sent as an `HttpOnly`, `SameSite=Strict` cookie or as an `Authorization: Bearer` header (for scripts and other non-browser clients), required on every request and on the WebSocket handshake. Paired devices are remembered (hashed) in a file in the install folder, and can be unpaired.
+- **Before pairing, almost nothing answers:** the UI's static files and the pairing endpoint only
+- The UI works on a phone screen (layout checked in 0.7) and shows the pairing screen when needed
+- **A user-manual section on network mode:** piano-lab is a local service for tinkerers, so it's as safe as the network it's on. What's encrypted (by the Wi-Fi, not by piano-lab), who you're trusting (everyone with the Wi-Fi password, and every device on the network), and how to harden it: the laptop's Mobile Hotspot as a private network for just the laptop and phone, or a separate network on the router (noting that guest networks usually stop their devices reaching each other)
+
+**Acceptance checks:**
+- With network mode off, nothing is reachable from another machine; with it on, nothing but the static files and the pairing endpoint answers an unpaired client
+- Pairing is tested: a right code pairs once, an expired or reused code fails, repeated wrong guesses lock pairing, an unpaired or unknown token is refused on HTTP and on the WebSocket
+- Manual: a phone on the same Wi-Fi pairs and then controls volume and release while you play
+
+**Decisions:**
+- **Opt-in, not the default**, so nobody who doesn't need it is exposed. For tinkerers, it's one line in `settings.toml`.
+- **Clients on this computer don't pair**: they're trusted with the browser protections from 0.6 (revisited by the 0.8 threat model). Clients from the network always pair.
+- **Traffic isn't encrypted.** Nothing piano-lab sends is private, and on a home network WPA2/WPA3 keeps it from anyone without the Wi-Fi password; the manual says so plainly. Considered during 0.6's discussion, for later if needed: the gateway's own self-signed certificate, with an optional throwaway, name-constrained CA installed on the phone (the leading option; it also makes the UI installable as an app on the phone); Plex-style certificates, a native phone app, or a hosted UI over WebRTC (all need fees or a cloud service, against [vision.md](../vision.md#distribution)); and Tailscale (an optional extra for people who already use it).
+- **Windows Firewall asks** the first time network mode is used; allowing private networks only keeps piano-lab off public Wi-Fi.
+
+## 0.10 Latency measurement
+
+**What:** measure real key-to-sound latency and write it down.
+
+**Includes:**
+- Each Windows device type JUCE offers (shared, low-latency shared, exclusive, ASIO if available) at several buffer sizes
+- The on-screen keyboard's touch-to-sound latency too, for comparison
+- A physical loopback or recorded tap test (method decided when we get here)
+- Results written up in `docs/`
+
+**Acceptance checks:**
+- A measured number per mode and buffer size, compared against the 5–10 ms target
+- A recommendation for the default mode
 
 ---
 
