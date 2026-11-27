@@ -19,6 +19,7 @@
 | [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
 | [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
 | [0.8](#08-latency-measurement) | Latency measurement across Windows audio modes | Not started |
+| [0.9](#09-threat-model-and-defences) | Threat model and defences: what we protect, from whom, and how | Not started |
 
 ---
 
@@ -280,6 +281,24 @@
 **Acceptance checks:**
 - A measured number per mode and buffer size, compared against the 5–10 ms target
 - A recommendation for the default mode
+
+## 0.9 Threat model and defences
+
+**What:** a written threat model for piano-lab, and a decided defence for each threat. Milestone 0 is when the backend first listens on the network, so this is where security gets looked at as a whole instead of one step at a time.
+
+**Includes:**
+- `docs/security.md`: what we protect (the user's PC, their files and settings, the music), who from (malicious websites in the user's browser, devices on the same network, people who know the Wi-Fi password, shared and public networks), and which defence covers each threat, or why a gap is accepted for now
+- A review of what 0.6 and 0.7 built against it: pairing and tokens, browser protections, the network default, input limits, file paths, privileges
+- Hardening the network-facing code: fuzz tests for the protocol parsing, alongside the existing AddressSanitizer runs
+- A decision on transport security for clients on other devices (phone), choosing between the routes noted during 0.6's discussion: Plex-style certificates, a phone app with a pinned certificate, a hosted UI with WebRTC, Tailscale, or accepting plain HTTP on home networks
+- A habit for dependency security advisories and a way for users to get fixes quickly
+
+**Acceptance checks:**
+- Every threat in `docs/security.md` names its defence or its accepted gap
+- Fuzz tests run in `npm run check`, or in a separate documented command if they're too slow for it
+- Any change the review finds is made, or added to the plan
+
+**Why here:** security-first rather than bolted on. AI-assisted attacks make small network-facing apps worth attacking, and the costliest harm isn't eavesdropping but a bug in our network code that lets someone on the network run code on the user's PC.
 
 ---
 
