@@ -316,7 +316,9 @@ TEST_CASE("the install folder's settings change the sound, and the summary names
                                   .help = false};
     REQUIRE(render::renderFile(builtIn, folder / "missing.toml"));
 
-    writeText(folder / "settings.toml", "[tuning]\na4Hz = 415\n[audio]\ntype = \"ASIO\"\n");
+    // The device sections don't matter to a render, so their problems aren't reported.
+    writeText(folder / "settings.toml",
+              "[tuning]\na4Hz = 415\n[audio]\ntype = \"ASIO\"\nbufferSize = 64.5\n");
     render::Options tuned = builtIn;
     tuned.output = folder / "tuned.wav";
     const auto summary = render::renderFile(tuned, folder / "settings.toml");

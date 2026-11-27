@@ -32,9 +32,14 @@ namespace {
 /// The sections a settings file can have, in no particular order.
 constexpr std::array<std::string_view, 5> sectionNames{"render", "tuning", "sine", "audio", "midi"};
 
-/// A problem found while reading, and the line it's on.
+/// The sections that set up devices; the rest set up the piano.
+constexpr std::array<std::string_view, 2> deviceSections{"audio", "midi"};
+
+/// A problem found while reading, the line it's on, and the section it's about (empty when it's
+/// about the file as a whole, e.g. an unknown section).
 struct Problem {
     toml::source_index line = 0;
+    std::string_view section;
     Error error;
 };
 
@@ -44,22 +49,25 @@ struct Reader {
     std::vector<Problem> problems; ///< one per problem, in the order found
 };
 
-/// Adds a problem to `reader`, its message starting with the source and the line of `where`.
-void report(Reader& reader, const toml::source_region& where, std::string_view message) {
+/// Adds a problem about `section` to `reader`, its message starting with the source and the
+/// line of `where`.
+void report(Reader& reader, const toml::source_region& where, std::string_view section,
+            std::string_view message) {
     reader.problems.push_back(
         {.line = where.begin.line,
+         .section = section,
          .error = Error{std::format("{}:{}: {}", reader.source, where.begin.line, message)}});
 }
 
-/// The problems `reader` found, in the order of their lines in the file.
-std::vector<Error> warnings(Reader reader) {
+/// Moves the problems `reader` found into `loaded`, in the order of their lines in the file: those
+/// about the device sections into `deviceWarnings`, the rest into `warnings`.
+void addWarnings(Reader reader, Loaded& loaded) {
     std::ranges::stable_sort(reader.problems, {}, &Problem::line);
-    std::vector<Error> result;
-    result.reserve(reader.problems.size());
     for (auto& problem : reader.problems) {
-        result.push_back(std::move(problem.error));
+        const bool isDevice =
+            std::ranges::find(deviceSections, problem.section) != deviceSections.end();
+        (isDevice ? loaded.deviceWarnings : loaded.warnings).push_back(std::move(problem.error));
     }
-    return result;
 }
 
 /// What kind of value `node` holds, as people would say it.
@@ -106,50 +114,63 @@ std::optional<std::size_t> countValue(const toml::node& node) {
     return std::nullopt;
 }
 
-/// Reads `value` from `node`, if it holds the right kind of value for `V`; returns whether it
-/// did. These overloads are the only kinds of setting there are.
-bool readValue(const toml::node& node, double& value) {
+/// Where a value doesn't fit its setting: the node at fault, and for a list, which entry it is
+/// (counting from 1; 0 when it's the value as a whole).
+struct Mismatch {
+    const toml::node* node = nullptr;
+    std::size_t entry = 0;
+};
+
+/// Reads `value` from `node` if it holds the right kind of value for `V`; otherwise leaves
+/// `value` alone and returns what doesn't fit. These overloads are the only kinds of setting
+/// there are.
+std::optional<Mismatch> readValue(const toml::node& node, double& value) {
     const auto number = numberValue(node);
-    if (number) {
-        value = *number;
+    if (!number) {
+        return Mismatch{.node = &node};
     }
-    return number.has_value();
+    value = *number;
+    return std::nullopt;
 }
 
 /// See the `double` overload.
-bool readValue(const toml::node& node, std::size_t& value) {
+std::optional<Mismatch> readValue(const toml::node& node, std::size_t& value) {
     const auto count = countValue(node);
-    if (count) {
-        value = *count;
+    if (!count) {
+        return Mismatch{.node = &node};
     }
-    return count.has_value();
+    value = *count;
+    return std::nullopt;
 }
 
 /// See the `double` overload.
-bool readValue(const toml::node& node, std::string& value) {
+std::optional<Mismatch> readValue(const toml::node& node, std::string& value) {
     const auto* text = node.as_string();
-    if (text != nullptr) {
-        value = text->get();
+    if (text == nullptr) {
+        return Mismatch{.node = &node};
     }
-    return text != nullptr;
+    value = text->get();
+    return std::nullopt;
 }
 
-/// See the `double` overload. Every entry must be text, or the whole list is rejected.
-bool readValue(const toml::node& node, std::vector<std::string>& value) {
+/// See the `double` overload. Every entry must be text, or the whole list is rejected and the
+/// first entry that isn't is returned.
+std::optional<Mismatch> readValue(const toml::node& node, std::vector<std::string>& value) {
     const auto* list = node.as_array();
     if (list == nullptr) {
-        return false;
+        return Mismatch{.node = &node};
     }
     std::vector<std::string> names;
+    names.reserve(list->size());
     for (const auto& entry : *list) {
         const auto* text = entry.as_string();
         if (text == nullptr) {
-            return false;
+            return Mismatch{.node = &entry, .entry = names.size() + 1};
         }
         names.push_back(text->get());
     }
     value = std::move(names);
-    return true;
+    return std::nullopt;
 }
 
 /// What a setting of type `V` must be, for messages.
@@ -191,12 +212,18 @@ void readField(Reader& reader, const toml::table& table, std::string_view sectio
         return;
     }
     auto& value = config.*memberOf(field);
-    if (!readValue(*node, value)) {
-        using V = std::remove_cvref_t<decltype(value)>;
-        report(reader, node->source(),
-               std::format("{}.{}: expected {}, found {}; using the built-in value", section,
-                           field.name, expectation<V>(), describe(*node)));
+    const auto mismatch = readValue(*node, value);
+    if (!mismatch) {
+        return;
     }
+    using V = std::remove_cvref_t<decltype(value)>;
+    const std::string found =
+        mismatch->entry == 0
+            ? std::format("found {}", describe(*mismatch->node))
+            : std::format("but entry {} is {}", mismatch->entry, describe(*mismatch->node));
+    report(reader, mismatch->node->source(), section,
+           std::format("{}.{}: expected {}, {}; using the built-in value", section, field.name,
+                       expectation<V>(), found));
 }
 
 /// Reads section `section` of `root` into `config`, using `fields` (a tuple of fields for `C`).
@@ -211,7 +238,7 @@ void readSection(Reader& reader, const toml::table& root, std::string_view secti
     }
     const toml::table* table = node->as_table();
     if (table == nullptr) {
-        report(reader, node->source(),
+        report(reader, node->source(), section,
                std::format("{}: expected a section ([{}]), found {}; ignored", section, section,
                            describe(*node)));
         return;
@@ -232,11 +259,11 @@ void readSection(Reader& reader, const toml::table& root, std::string_view secti
             continue;
         }
         if (section == "render" && name == "sampleRate") {
-            report(reader, key.source(),
+            report(reader, key.source(), section,
                    "render.sampleRate can't be set here: the audio device decides it (ask for one "
                    "with audio.sampleRate), and 'piano-lab render --sample-rate' offline; ignored");
         } else {
-            report(reader, key.source(),
+            report(reader, key.source(), section,
                    std::format("unknown setting '{}.{}'; ignored", section, name));
         }
     }
@@ -265,11 +292,13 @@ std::expected<Loaded, Error> parseSettings(std::string_view text, std::string_vi
 
     for (const auto& [key, value] : root) {
         if (std::ranges::find(sectionNames, key.str()) == sectionNames.end()) {
-            report(reader, key.source(),
+            report(reader, key.source(), "",
                    std::format("unknown section or setting '{}'; ignored", key.str()));
         }
     }
-    return Loaded{.settings = std::move(settings), .warnings = warnings(std::move(reader))};
+    Loaded loaded{.settings = std::move(settings), .warnings = {}, .deviceWarnings = {}};
+    addWarnings(std::move(reader), loaded);
+    return loaded;
 }
 
 } // namespace pianolab::settings

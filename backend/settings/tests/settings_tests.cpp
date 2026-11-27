@@ -144,20 +144,26 @@ maxBlock = -4
 output = 3
 bufferSize = 64.5
 [midi]
-inputs = ["Digital Piano", 2]
+inputs = [
+  "Digital Piano",
+  2,
+]
 )");
-    const auto found = messages(loaded.warnings);
-    REQUIRE(found.size() == 5);
-    CHECK(found[0] ==
+    const auto piano = messages(loaded.warnings);
+    REQUIRE(piano.size() == 2);
+    CHECK(piano[0] ==
           "settings.toml:2: sine.gain: expected a number, found text; using the built-in value");
-    CHECK(found[1] == "settings.toml:4: render.maxBlock: expected a whole number, 0 or more, found "
+    CHECK(piano[1] == "settings.toml:4: render.maxBlock: expected a whole number, 0 or more, found "
                       "a negative whole number; using the built-in value");
-    CHECK(found[2] == "settings.toml:6: audio.output: expected text in quotes, found a whole "
-                      "number; using the built-in value");
-    CHECK(found[3] == "settings.toml:7: audio.bufferSize: expected a whole number, 0 or more, "
-                      "found a number; using the built-in value");
-    CHECK(found[4] == R"(settings.toml:9: midi.inputs: expected a list of names in quotes, like )"
-                      R"(["A", "B"], found a list; using the built-in value)");
+    const auto devices = messages(loaded.deviceWarnings);
+    REQUIRE(devices.size() == 3);
+    CHECK(devices[0] == "settings.toml:6: audio.output: expected text in quotes, found a whole "
+                        "number; using the built-in value");
+    CHECK(devices[1] == "settings.toml:7: audio.bufferSize: expected a whole number, 0 or more, "
+                        "found a number; using the built-in value");
+    CHECK(devices[2] == R"(settings.toml:11: midi.inputs: expected a list of names in quotes, )"
+                        R"(like ["A", "B"], but entry 2 is a whole number; using the built-in )"
+                        R"(value)");
     const pianolab::models::PianoConfig builtIn;
     CHECK(loaded.settings.piano.sine.gain == builtIn.sine.gain);
     CHECK(loaded.settings.piano.render.maxBlock == builtIn.render.maxBlock);
@@ -167,10 +173,22 @@ inputs = ["Digital Piano", 2]
 }
 
 TEST_CASE("a section that isn't a table is reported and ignored") {
-    const auto loaded = parse("sine = 3\n");
+    const auto loaded = parse("sine = 3\nmidi = 4\n");
     CHECK(messages(loaded.warnings) ==
           std::vector<std::string>{
               "settings.toml:1: sine: expected a section ([sine]), found a whole number; ignored"});
+    CHECK(messages(loaded.deviceWarnings) ==
+          std::vector<std::string>{
+              "settings.toml:2: midi: expected a section ([midi]), found a whole number; ignored"});
+}
+
+TEST_CASE("problems with the device sections are kept apart from the piano's") {
+    const auto loaded = parse("[audio]\nvolume = 2\n[tuning]\npitch = 1\n[extra]\n");
+    CHECK(messages(loaded.deviceWarnings) ==
+          std::vector<std::string>{"settings.toml:2: unknown setting 'audio.volume'; ignored"});
+    CHECK(messages(loaded.warnings) ==
+          std::vector<std::string>{"settings.toml:4: unknown setting 'tuning.pitch'; ignored",
+                                   "settings.toml:5: unknown section or setting 'extra'; ignored"});
 }
 
 TEST_CASE("text that isn't TOML is an error with its line and column") {
@@ -210,6 +228,7 @@ TEST_CASE("the starter file, uncommented, is exactly the built-in settings") {
 
     const auto loaded = parse(uncommented);
     CHECK(messages(loaded.warnings).empty());
+    CHECK(messages(loaded.deviceWarnings).empty());
     const pianolab::models::PianoConfig builtIn;
     CHECK(loaded.settings.piano.render.maxBlock == builtIn.render.maxBlock);
     CHECK(loaded.settings.piano.tuning.a4Hz == builtIn.tuning.a4Hz);
@@ -243,6 +262,7 @@ TEST_CASE("settings files are read and written") {
     const auto starter = settings::loadSettings(file);
     REQUIRE(starter);
     CHECK(starter->warnings.empty());
+    CHECK(starter->deviceWarnings.empty());
 
     writeText(file, "\xEF\xBB\xBF[tuning]\na4Hz = 415\nnonsense = 1\n");
     const auto loaded = settings::loadSettings(file);

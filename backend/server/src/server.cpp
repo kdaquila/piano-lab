@@ -181,9 +181,27 @@ std::vector<AudioDeviceType> audioDeviceTypes(juce::AudioDeviceManager& manager,
     return types;
 }
 
+/// Opens the output named by `choice` at the sample rate and buffer size `audio` asks for (the
+/// device's closest, if it can't do them), with no fallback. Returns JUCE's error text; empty
+/// when it opened.
+juce::String openAudioDevice(juce::AudioDeviceManager& manager, const AudioChoice& choice,
+                             const settings::AudioSettings& audio) {
+    // JUCE's own saved-state format is the one way to name the device type, device, rate and
+    // buffer size in a single step.
+    juce::XmlElement state("DEVICESETUP");
+    state.setAttribute("deviceType", juceText(choice.type));
+    state.setAttribute("audioOutputDeviceName", juceText(choice.output));
+    state.setAttribute("audioDeviceRate", audio.sampleRate);
+    if (audio.bufferSize > 0) {
+        state.setAttribute("audioDeviceBufferSize", static_cast<int>(audio.bufferSize));
+    }
+    return manager.initialise(0, 2, &state, false);
+}
+
 /// Opens the audio output `settings` asks for, falling back to the defaults for anything it
-/// can't (see `chooseAudioOutput`). A sample rate or buffer size the device can't do becomes its
-/// closest one (JUCE's choice). Logs what happened; returns whether any device opened.
+/// can't (see `chooseAudioOutput`), and to the default output, at the same sample rate and buffer
+/// size, if the chosen one won't open. A sample rate or buffer size the device can't do becomes
+/// its closest one (JUCE's choice). Logs what happened; returns whether any device opened.
 bool openAudio(juce::AudioDeviceManager& manager, const settings::AudioSettings& settings,
                const logging::Log& log) {
     const auto validated = settings::validate(settings);
@@ -200,16 +218,20 @@ bool openAudio(juce::AudioDeviceManager& manager, const settings::AudioSettings&
         return false;
     }
 
-    // JUCE's own saved-state format is the one way to name the device type, device, rate and
-    // buffer size in a single step. If that device won't open, JUCE falls back to the defaults.
-    juce::XmlElement state("DEVICESETUP");
-    state.setAttribute("deviceType", juceText(choice.type));
-    state.setAttribute("audioOutputDeviceName", juceText(choice.output));
-    state.setAttribute("audioDeviceRate", audio.sampleRate);
-    if (audio.bufferSize > 0) {
-        state.setAttribute("audioDeviceBufferSize", static_cast<int>(audio.bufferSize));
+    juce::String problem = openAudioDevice(manager, choice, audio);
+    if (manager.getCurrentAudioDevice() == nullptr) {
+        // e.g. ASIO in use by another program: try the default output, at the same rate and
+        // buffer size.
+        const auto fallback = chooseAudioOutput({}, audioDeviceTypes(manager, log));
+        const bool isDifferent = fallback.type != choice.type || fallback.output != choice.output;
+        if (!fallback.type.empty() && isDifferent) {
+            logging::warning(log, R"(audio: "{}" ({}) couldn't be opened{}; trying "{}" ({}))",
+                             choice.output, choice.type,
+                             problem.isEmpty() ? std::string{} : ": " + utf8(problem),
+                             fallback.output, fallback.type);
+            problem = openAudioDevice(manager, fallback, audio);
+        }
     }
-    const juce::String problem = manager.initialise(0, 2, &state, true);
     auto* device = manager.getCurrentAudioDevice();
     if (device == nullptr) {
         logging::error(log, "no audio output could be opened{}; running silently",
@@ -218,10 +240,6 @@ bool openAudio(juce::AudioDeviceManager& manager, const settings::AudioSettings&
     }
     if (problem.isNotEmpty()) {
         logging::warning(log, "audio output: {}", utf8(problem));
-    }
-    if (utf8(device->getTypeName()) != choice.type || utf8(device->getName()) != choice.output) {
-        logging::warning(log, "audio: \"{}\" ({}) couldn't be opened; using the default instead",
-                         choice.output, choice.type);
     }
     if (device->getCurrentSampleRate() != audio.sampleRate) {
         logging::info(log, "audio: the device can't run at {} Hz; using its closest, {} Hz",

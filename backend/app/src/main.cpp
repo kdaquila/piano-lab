@@ -109,8 +109,15 @@ pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
                                             const pianolab::logging::Log& log) {
     namespace settings = pianolab::settings;
     using pianolab::music_io::displayPath;
-    std::error_code error; // if it can't even be checked, it's treated as not there
-    if (!std::filesystem::exists(file, error)) {
+    std::error_code error;
+    const bool exists = std::filesystem::exists(file, error);
+    if (error) {
+        // Never write the starter file over a file that might be there.
+        pianolab::logging::error(log, "can't check for {}: {}; using the built-in settings",
+                                 displayPath(file), error.message());
+        return {};
+    }
+    if (!exists) {
         if (const auto written = settings::writeStarterSettings(file); written) {
             pianolab::logging::info(log, "wrote a settings file listing every setting: {}",
                                     displayPath(file));
@@ -127,6 +134,9 @@ pianolab::settings::Settings serverSettings(const std::filesystem::path& file,
     }
     pianolab::logging::info(log, "settings: {}", displayPath(file));
     for (const auto& problem : loaded->warnings) {
+        pianolab::logging::warning(log, "{}", problem.message);
+    }
+    for (const auto& problem : loaded->deviceWarnings) {
         pianolab::logging::warning(log, "{}", problem.message);
     }
     return std::move(loaded->settings);

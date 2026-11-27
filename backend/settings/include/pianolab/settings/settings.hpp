@@ -122,13 +122,16 @@ struct Settings {
     MidiSettings midi;
 };
 
-/// Settings read from a file, with everything that had to be skipped or fixed along the way.
+/// Settings read from a file, with everything that had to be skipped or fixed along the way: one
+/// `Error` per problem, each starting with the file and line, e.g.
+/// "settings.toml:4: unknown setting 'sine.gian'; ignored", in the order of the file. Empty lists
+/// mean the file was read exactly as written.
 struct Loaded {
     Settings settings;
-    /// One `Error` per problem, each starting with the file and line, e.g.
-    /// "settings.toml:4: unknown setting 'sine.gian'; ignored". An empty list means the file was
-    /// read exactly as written.
+    /// Problems with the piano's sections, or with the file as a whole (e.g. an unknown section).
     std::vector<engine_core::Error> warnings;
+    /// Problems with the `[audio]` and `[midi]` sections, which only matter to the server.
+    std::vector<engine_core::Error> deviceWarnings;
 };
 
 /// Reads settings from TOML `text`, merging what it sets over the built-in settings. `source`

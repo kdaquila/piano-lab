@@ -75,8 +75,18 @@ std::expected<PianoSettings, Error> pianoSettings(const Options& options,
         append(warnings, std::move(loaded->warnings));
         return PianoSettings{.piano = loaded->settings.piano, .file = options.settings};
     }
-    std::error_code error; // if it can't even be checked, it's treated as not there
-    if (installSettings.empty() || !std::filesystem::exists(installSettings, error)) {
+    if (installSettings.empty()) {
+        return PianoSettings{};
+    }
+    std::error_code error;
+    const bool exists = std::filesystem::exists(installSettings, error);
+    if (error) {
+        warnings.push_back(
+            Error{std::format("can't check for {}: {}; using the built-in settings",
+                              music_io::displayPath(installSettings), error.message())});
+        return PianoSettings{};
+    }
+    if (!exists) {
         return PianoSettings{};
     }
     auto loaded = settings::loadSettings(installSettings);

@@ -43,7 +43,7 @@ std::string tomlString(std::string_view text) {
         if (c == '"' || c == '\\') {
             result += '\\';
             result += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
+        } else if (static_cast<unsigned char>(c) < 0x20 || c == '\x7F') {
             result += std::format("\\u{:04X}", static_cast<unsigned>(c));
         } else {
             result += c;
@@ -53,13 +53,14 @@ std::string tomlString(std::string_view text) {
 }
 
 /// The starter file's lines for one number setting: its description and range, then the
-/// setting commented out with its built-in value from `defaults`.
+/// setting commented out with its built-in value from `defaults`. The value is written in full
+/// (the shortest text that reads back exactly), so uncommenting it never changes it.
 template <typename C, typename V>
 std::string starterLines(const Field<C, V>& field, const C& defaults) {
     const std::string unit = field.unit.empty() ? std::string{} : std::format(" {}", field.unit);
     return std::format("# {} ({}-{}{})\n# {} = {}\n", field.description,
                        engine_core::formatValue(field.min), engine_core::formatValue(field.max),
-                       unit, field.name, engine_core::formatValue(defaults.*field.member));
+                       unit, field.name, defaults.*field.member);
 }
 
 /// See the `Field` overload.

@@ -63,6 +63,21 @@ TEST_CASE("a named type and output are chosen") {
     CHECK(speakers.warnings.empty());
 }
 
+TEST_CASE("an output named without a type picks the type that has it") {
+    const auto choice = server::chooseAudioOutput(audio("", "Focusrite USB ASIO"), windowsTypes());
+    CHECK(choice.type == "ASIO");
+    CHECK(choice.output == "Focusrite USB ASIO");
+    CHECK(choice.warnings.empty());
+
+    const auto missing = server::chooseAudioOutput(audio("", "Monitors"), windowsTypes());
+    CHECK(missing.type == "Windows Audio");
+    CHECK(missing.output == "Headphones");
+    CHECK(messages(missing.warnings) ==
+          std::vector<std::string>{R"(audio.output: "Monitors" isn't available (outputs: )"
+                                   R"("Speakers", "Headphones", "Focusrite USB ASIO"); using )"
+                                   R"("Headphones")"});
+}
+
 TEST_CASE("a missing type or output is reported and the default used") {
     const auto noType = server::chooseAudioOutput(audio("asio"), windowsTypes());
     CHECK(noType.type == "Windows Audio");
@@ -128,6 +143,13 @@ TEST_CASE("a listed MIDI input that isn't there is reported") {
     CHECK(messages(none.warnings) ==
           std::vector<std::string>{
               "midi.inputs: \"Organ\" isn't connected (inputs: \"Digital Piano\", \"Pads\")",
+              "midi.inputs: none of the listed inputs is connected; opening every input"});
+
+    const auto twice = server::chooseMidiInputs({.inputs = {"Organ", "Organ"}}, {"Pads"});
+    CHECK(twice.inputs == std::vector<std::size_t>{0});
+    CHECK(messages(twice.warnings) ==
+          std::vector<std::string>{
+              R"(midi.inputs: "Organ" isn't connected (inputs: "Pads"))",
               "midi.inputs: none of the listed inputs is connected; opening every input"});
 
     const auto nothingPlugged = server::chooseMidiInputs({.inputs = {"Organ"}}, {});

@@ -55,6 +55,15 @@ AudioChoice chooseAudioOutput(const settings::AudioSettings& settings,
     }
 
     const AudioDeviceType* type = &*firstWithOutputs;
+    if (settings.type.empty() && !settings.output.empty()) {
+        // Only an output named: it decides the type, e.g. an ASIO interface's name.
+        const auto owner = std::ranges::find_if(available, [&](const auto& candidate) {
+            return std::ranges::find(candidate.outputs, settings.output) != candidate.outputs.end();
+        });
+        if (owner != available.end()) {
+            type = &*owner;
+        }
+    }
     if (!settings.type.empty()) {
         const auto named = std::ranges::find(available, settings.type, &AudioDeviceType::name);
         if (named == available.end()) {
@@ -75,6 +84,15 @@ AudioChoice chooseAudioOutput(const settings::AudioSettings& settings,
     if (!settings.output.empty()) {
         if (std::ranges::find(type->outputs, settings.output) != type->outputs.end()) {
             choice.output = settings.output;
+        } else if (settings.type.empty()) {
+            std::vector<std::string> everyOutput;
+            for (const auto& candidate : available) {
+                everyOutput.insert(everyOutput.end(), candidate.outputs.begin(),
+                                   candidate.outputs.end());
+            }
+            choice.warnings.push_back(
+                Error{std::format(R"(audio.output: "{}" isn't available (outputs: {}); using "{}")",
+                                  settings.output, listNames(everyOutput), choice.output)});
         } else {
             choice.warnings.push_back(Error{std::format(
                 R"(audio.output: "{}" isn't available as a "{}" output (outputs: {}); using "{}")",
@@ -103,10 +121,11 @@ MidiChoice chooseMidiInputs(const settings::MidiSettings& settings,
             choice.inputs.push_back(index);
         }
     }
-    for (const auto& name : settings.inputs) {
-        if (std::ranges::find(available, name) == available.end()) {
+    for (auto name = settings.inputs.begin(); name != settings.inputs.end(); ++name) {
+        const bool reported = std::find(settings.inputs.begin(), name, *name) != name;
+        if (!reported && std::ranges::find(available, *name) == available.end()) {
             choice.warnings.push_back(Error{std::format(
-                "midi.inputs: \"{}\" isn't connected (inputs: {})", name, listNames(available))});
+                R"(midi.inputs: "{}" isn't connected (inputs: {}))", *name, listNames(available))});
         }
     }
     if (choice.inputs.empty() && !available.empty()) {

@@ -28,7 +28,8 @@ struct AudioChoice {
 /// Chooses the audio output for `settings` from `available` (in the system's order).
 ///
 /// An empty `type` picks the first type with an output, and an empty `output` that type's default
-/// output. A named type or output that isn't there (names must match exactly) is reported in
+/// output. An `output` named without a `type` picks the first type that has it. A named type or
+/// output that isn't there (names must match exactly) is reported in
 /// `warnings`, listing what is there, and the default is used instead; so is a named type with no
 /// outputs. With no outputs anywhere, both names come back empty.
 [[nodiscard]] AudioChoice chooseAudioOutput(const settings::AudioSettings& settings,
@@ -44,8 +45,8 @@ struct MidiChoice {
 ///
 /// No inputs named opens every input. Otherwise every available input with a listed name opens
 /// (names must match exactly; two inputs with the same name both open). A listed name that isn't
-/// there is reported in `warnings`; if none of them is there, every input opens, so a keyboard
-/// plugged into another port still plays.
+/// there is reported in `warnings`, once; if none of them is there, every input opens, so a
+/// keyboard plugged into another port still plays.
 [[nodiscard]] MidiChoice chooseMidiInputs(const settings::MidiSettings& settings,
                                           const std::vector<std::string>& available);
 
