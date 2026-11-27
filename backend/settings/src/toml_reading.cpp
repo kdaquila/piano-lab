@@ -188,17 +188,17 @@ template <typename V> constexpr std::string_view expectation() {
 
 /// The member of `C` that `field` describes, and the type of its value. Overloaded for each kind
 /// of field.
-template <typename C, typename V> V C::*memberOf(const Field<C, V>& field) {
+template <typename C, typename V> V C::* memberOf(const Field<C, V>& field) {
     return field.member;
 }
 
 /// See the `Field` overload.
-template <typename C> std::string C::*memberOf(const TextField<C>& field) {
+template <typename C> std::string C::* memberOf(const TextField<C>& field) {
     return field.member;
 }
 
 /// See the `Field` overload.
-template <typename C> std::vector<std::string> C::*memberOf(const TextListField<C>& field) {
+template <typename C> std::vector<std::string> C::* memberOf(const TextListField<C>& field) {
     return field.member;
 }
 

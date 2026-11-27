@@ -27,15 +27,15 @@ inline constexpr std::string_view fileName = "settings.toml";
 /// One text setting of the settings struct `C`.
 template <typename C> struct TextField {
     std::string_view name;        ///< the setting's name, e.g. "output"
-    std::string C::*member;       ///< the struct member it describes
+    std::string C::* member;      ///< the struct member it describes
     std::string_view description; ///< one line for the starter file and the UI
 };
 
 /// One setting of the settings struct `C` holding a list of names.
 template <typename C> struct TextListField {
-    std::string_view name;               ///< the setting's name, e.g. "inputs"
-    std::vector<std::string> C::*member; ///< the struct member it describes
-    std::string_view description;        ///< one line for the starter file and the UI
+    std::string_view name;                ///< the setting's name, e.g. "inputs"
+    std::vector<std::string> C::* member; ///< the struct member it describes
+    std::string_view description;         ///< one line for the starter file and the UI
 };
 
 /// Which audio output the server plays through. Names are the ones the operating system shows; an
