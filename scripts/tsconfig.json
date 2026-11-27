@@ -1,0 +1,17 @@
+{
+    // Type checking only (`npm run check`): Node runs these files directly by stripping the types,
+    // so only syntax it can strip is allowed (erasableSyntaxOnly: no enums, namespaces or
+    // parameter properties) and imports name the .ts file.
+    "compilerOptions": {
+        "target": "esnext",
+        "module": "nodenext",
+        "types": ["node"],
+        "noEmit": true,
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "allowImportingTsExtensions": true
+    },
+    "include": ["**/*.ts"]
+}

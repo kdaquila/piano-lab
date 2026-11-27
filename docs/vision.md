@@ -66,6 +66,7 @@ That opens the door to things we'd never build ourselves:
 | UI tooling | npm, **oxlint + oxfmt**, **Vitest + React Testing Library**, **Playwright** (plus Playwright MCP for agents) | Fast lint/format; unit, component and end-to-end tests; agents can drive and check the real UI during development |
 | Protocol types | **TypeBox** | Type-safe runtime validators for every message, with TypeScript types derived from them |
 | Build | CMake | Standard for C++/JUCE |
+| Developer commands | **npm scripts**, written in **TypeScript** and run directly by Node | One familiar entry point (`npm run build`, `npm test`, `npm run check`) for every part; easier to read and maintain than shell scripts, and cross-platform |
 | Code quality | Strict compiler warnings as errors, clang-tidy, clang-format, sanitizers in tests | Agents write most of the code; tooling and tests are their feedback loop |
 
 Two languages, each doing what it's best at: C++ for everything that runs the instrument, TypeScript for everything you look at.
@@ -74,7 +75,7 @@ Two languages, each doing what it's best at: C++ for everything that runs the in
 Every user-facing surface (a command, an option, a mode, a file) is part of the final design. If a step seems to need something temporary, to be torn down once the real thing exists, that's a sign to reorder the steps or expand the design instead. A capability can wait until its real home exists (e.g. choosing the audio device arrives with configuration, not as a stopgap command-line option). Internal test harnesses that bypass or mock parts of the stack are ordinary testing practice, not temporary entry points.
 
 ### Dependency rules
-- **Pin every dependency** to an exact version or commit (via CPM.cmake), and upgrade deliberately.
+- **Pin every dependency** to an exact version or commit (C++ via CPM.cmake; npm packages as exact versions in `package.json`, locked by `package-lock.json`), and upgrade deliberately.
 - **Hide third-party libraries behind our own small interfaces.** Only one place in our code talks to each library, so swapping it later is a contained change (e.g. cpp-httplib lives only inside the control server).
 - **Header-only libraries are contained:** included from exactly one `.cpp` file, marked as system includes so our warning rules don't apply to them, and configured (`#define`s) in one place, on the CMake target. This keeps compile times, Windows-header clashes and configuration mismatches from spreading. *Exception:* small template libraries that include only standard headers (e.g. the SPSC queue) may be included wherever their wrapper type is used, since they carry none of those costs.
 - **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `backend/`; those live in `backend/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.

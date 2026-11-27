@@ -61,7 +61,7 @@
   - clang-tidy: the bugprone, performance, modernize and concurrency groups, plus curated readability and Core Guidelines checks
   - An AddressSanitizer test preset
   - The ported no-allocation test (arrives in 0.2, with the rendering code it checks)
-  - One check script (`tools/check.ps1`) that formats, lints, builds and tests: the same gate for you, me and agents
+  - One check command that formats, lints, builds and tests: the same gate for you, me and agents. First `tools/check.ps1`; since 2026-11-27 `npm run check` (see the README)
 - Tools to install at the start of the step if missing: LLVM (clang-format, clang-tidy), CMake, Ninja.
 - **Editor: VS Code + clangd.** CMake presets export `compile_commands.json` so clangd (and any agent tooling) sees the exact build. The repo ships `.clang-format`, `.clang-tidy` and recommended VS Code extensions. Visual Studio 2022 stays available as the heavy-duty debugger.
 
@@ -237,6 +237,7 @@
 
 **Decisions:**
 - **A modern, customisable interface:** users decide what's on screen (e.g. show, hide or move the log panel), rather than the app offering fixed modes. 0.7 lays the groundwork; full customisation can grow over later milestones.
+- **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `scripts/task.ts`, and the plain `build`, `test`, `check`, ... run them too. `ui/` becomes an npm workspace of the root `package.json`.
 - **Stack:** npm; TypeScript + React + Vite; **MUI** (Material UI) as the component library, styled with the `sx` prop. Other skins (e.g. Tailwind) are a fun later option, but prototyping shouldn't require building a design system.
 - **State: Zustand**, with a disciplined, **normalized** store: flat collections keyed by id, no deep state trees.
 - **Protocol types: TypeBox** validators for every message, with TypeScript types derived from them. Incoming backend messages are validated at the boundary.

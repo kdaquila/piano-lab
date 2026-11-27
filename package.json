@@ -1,0 +1,29 @@
+{
+    "name": "piano-lab",
+    "private": true,
+    "description": "A physically modelled piano. These scripts build, test and run it: see the README.",
+    "license": "MIT",
+    "type": "module",
+    "engines": {
+        "node": ">=24.12.0"
+    },
+    "scripts": {
+        "build": "node scripts/task.ts build",
+        "build:server": "node scripts/task.ts build:server",
+        "test": "node scripts/task.ts test",
+        "test:server": "node scripts/task.ts test:server",
+        "format": "node scripts/task.ts format",
+        "format:server": "node scripts/task.ts format:server",
+        "lint": "node scripts/task.ts lint",
+        "lint:server": "node scripts/task.ts lint:server",
+        "check": "node scripts/task.ts check",
+        "check:server": "node scripts/task.ts check:server",
+        "start": "node scripts/task.ts start",
+        "start:server": "node scripts/task.ts start:server",
+        "render": "node scripts/task.ts render"
+    },
+    "devDependencies": {
+        "@types/node": "24.19.4",
+        "typescript": "7.0.2"
+    }
+}

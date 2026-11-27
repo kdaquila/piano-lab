@@ -15,5 +15,5 @@ paths:
 - **Real-time rules:** nothing called while rendering may allocate, lock, block, throw or do I/O.
 - **Engine boundary:** nothing in `engine/` may use JUCE, networking, JSON or `backend/`. A new engine target must be listed in `pianolab_engine_rules()` in `engine/CMakeLists.txt`.
 - **Dependencies:** pinned in `cmake/Dependencies.cmake` (version + SHA-256), hidden behind our own interfaces, header-only ones included from one `.cpp` (see `docs/vision.md#dependency-rules`).
-- **Build and check:** `.\tools\check.ps1` (`-Fix` applies clang-format). For single commands, run `. .\tools\dev-shell.ps1` first, then use the `dev`, `release` or `asan` presets.
+- **Build and check:** `npm run check` before handing over; `npm run format` applies clang-format. `npm run build:server -- <preset>` and `npm run test:server -- <preset>` take the `dev`, `release` or `asan` preset. Use the npm commands rather than raw `cmake`: they set up the Visual Studio environment.
 - Modelling code cites its sources in comments.
