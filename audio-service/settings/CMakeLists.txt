@@ -1,7 +1,8 @@
-# Settings: the user's settings.toml, read through the field tables and merged over the built-in
-# settings. toml++ (header-only) is used only by src/toml_reading.cpp.
+# Settings: the user's settings.toml, read and saved through the field tables, and changed by
+# name. toml++ (header-only) is used only by src/toml_reading.cpp.
 
 add_library(pianolab_settings
+    src/editing.cpp
     src/settings.cpp
     src/toml_reading.cpp
 )

@@ -92,25 +92,45 @@ template <typename V> [[nodiscard]] std::string formatValue(V value) {
     }
 }
 
+/// Whether `value` is valid for `field`: within its range, and not NaN.
+template <typename C, typename V> [[nodiscard]] bool inRange(const Field<C, V>& field, V value) {
+    if constexpr (std::is_floating_point_v<V>) {
+        if (std::isnan(value)) {
+            return false;
+        }
+    }
+    return value >= field.min && value <= field.max;
+}
+
+/// The unit of `field` as it follows a value in messages: " Hz", or nothing when unitless.
+template <typename C, typename V> [[nodiscard]] std::string unitSuffix(const Field<C, V>& field) {
+    return field.unit.empty() ? std::string{} : std::format(" {}", field.unit);
+}
+
+/// Says that `value` doesn't fit `field`, naming it as `prefix` + its name, e.g.
+/// "sine.gain: 2 is outside 0-1". `value` may be of another type than the field's, for values
+/// that couldn't be converted (e.g. a number too large for a count).
+template <typename C, typename V, typename X>
+[[nodiscard]] std::string outOfRangeMessage(std::string_view prefix, const Field<C, V>& field,
+                                            X value) {
+    const std::string unit = unitSuffix(field);
+    return std::format("{}{}: {}{} is outside {}-{}{}", prefix, field.name, formatValue(value),
+                       unit, formatValue(field.min), formatValue(field.max), unit);
+}
+
 /// Checks one field of `config`: a value outside the field's range (or NaN) is replaced with
 /// the value from `defaults`, and an `Error` naming `prefix` + the field is added to `errors`.
 template <typename C, typename V>
 void checkField(C& config, const C& defaults, std::string_view prefix, const Field<C, V>& field,
                 std::vector<Error>& errors) {
     V& value = config.*field.member;
-    bool isNan = false;
-    if constexpr (std::is_floating_point_v<V>) {
-        isNan = std::isnan(value);
-    }
-    if (!isNan && value >= field.min && value <= field.max) {
+    if (inRange(field, value)) {
         return;
     }
     const V fallback = defaults.*field.member;
-    const std::string unit = field.unit.empty() ? std::string{} : std::format(" {}", field.unit);
     errors.push_back(
-        Error{std::format("{}{}: {}{} is outside {}-{}{}; using the default {}{}", prefix,
-                          field.name, formatValue(value), unit, formatValue(field.min),
-                          formatValue(field.max), unit, formatValue(fallback), unit)});
+        Error{std::format("{}; using the default {}{}", outOfRangeMessage(prefix, field, value),
+                          formatValue(fallback), unitSuffix(field))});
     value = fallback;
 }
 

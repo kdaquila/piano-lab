@@ -5,12 +5,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <limits>
+#include <optional>
 #include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -271,4 +275,174 @@ TEST_CASE("settings files are read and written") {
     REQUIRE(loaded->warnings.size() == 1);
     CHECK(loaded->warnings.front().message ==
           pianolab::music_io::displayPath(file) + ":3: unknown setting 'tuning.nonsense'; ignored");
+}
+
+TEST_CASE("every setting is described, in the file's order") {
+    const auto infos = settings::describeSettings();
+    REQUIRE(infos.size() == 11);
+    CHECK(infos.front().name == "audio.type");
+    CHECK(infos.back().name == "render.maxBlock");
+
+    const auto find = [&](std::string_view name) {
+        const auto info = std::ranges::find(infos, name, &settings::SettingInfo::name);
+        REQUIRE(info != infos.end());
+        return *info;
+    };
+    const auto gain = find("sine.gain");
+    CHECK(gain.kind == settings::Kind::Number);
+    CHECK(gain.min == 0.0);
+    CHECK(gain.max == 1.0);
+    CHECK(std::get<double>(gain.defaultValue) == pianolab::models::SineConfig{}.gain);
+    CHECK_FALSE(gain.integer);
+    CHECK_FALSE(gain.restartsDevices);
+
+    const auto bufferSize = find("audio.bufferSize");
+    CHECK(bufferSize.integer);
+    CHECK(bufferSize.unit == "samples");
+    CHECK(bufferSize.restartsDevices);
+
+    const auto inputs = find("midi.inputs");
+    CHECK(inputs.kind == settings::Kind::TextList);
+    CHECK_FALSE(inputs.min.has_value());
+    CHECK(inputs.restartsDevices);
+    CHECK(find("audio.output").kind == settings::Kind::Text);
+}
+
+TEST_CASE("values are read by name") {
+    settings::Settings current;
+    current.piano.tuning.a4Hz = 442.0;
+    current.audio.bufferSize = 128;
+    current.midi.inputs = {"Pads"};
+    const auto values = settings::valuesOf(current);
+    CHECK(values.size() == settings::describeSettings().size());
+    CHECK(std::get<double>(values.at("tuning.a4Hz")) == 442.0);
+    CHECK(std::get<double>(values.at("audio.bufferSize")) == 128.0);
+    CHECK(std::get<std::string>(values.at("audio.type")).empty());
+    CHECK(std::get<std::vector<std::string>>(values.at("midi.inputs")) ==
+          std::vector<std::string>{"Pads"});
+}
+
+TEST_CASE("valid changes are applied by name") {
+    const auto changed = settings::withChanges(
+        {}, {{"sine.gain", 0.5},
+             {"render.maxBlock", 256.0},
+             {"audio.type", std::string("ASIO")},
+             {"midi.inputs", std::vector<std::string>{"Digital Piano", "Pads"}}});
+    REQUIRE(changed);
+    CHECK(changed->piano.sine.gain == 0.5);
+    CHECK(changed->piano.render.maxBlock == 256);
+    CHECK(changed->audio.type == "ASIO");
+    CHECK(changed->midi.inputs == std::vector<std::string>{"Digital Piano", "Pads"});
+    CHECK(changed->piano.tuning.a4Hz == pianolab::models::PianoConfig{}.tuning.a4Hz);
+}
+
+TEST_CASE("bad changes are rejected together, each with its reason") {
+    const auto changed = settings::withChanges({}, {{"sine.gain", 2.0},
+                                                    {"sine.gian", 0.5},
+                                                    {"tuning.a4Hz", std::string("high")},
+                                                    {"audio.sampleRate", 1.0},
+                                                    {"audio.bufferSize", 64.5},
+                                                    {"render.maxBlock", 0.0},
+                                                    {"render.sampleRate", 44'100.0},
+                                                    {"audio.output", 3.0},
+                                                    {"midi.inputs", std::string("Pads")}});
+    REQUIRE_FALSE(changed);
+    CHECK(messages(changed.error()) ==
+          std::vector<std::string>{
+              "audio.output: expected text, found a number",
+              "audio.sampleRate: 1 Hz is outside 8000-384000 Hz",
+              "audio.bufferSize: expected a whole number, 0 or more, found 64.5",
+              "midi.inputs: expected a list of names, found text",
+              "tuning.a4Hz: expected a number, found text",
+              "sine.gain: 2 is outside 0-1",
+              "render.maxBlock: 0 samples is outside 1-8192 samples",
+              "unknown setting 'render.sampleRate'",
+              "unknown setting 'sine.gian'",
+          });
+}
+
+TEST_CASE("numbers that can't be valid are rejected, not converted") {
+    for (const double bad : {-1.0, 1e300, std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()}) {
+        INFO(bad);
+        CHECK_FALSE(settings::withChanges({}, {{"render.maxBlock", bad}}));
+        CHECK_FALSE(settings::withChanges({}, {{"sine.gain", bad}}));
+    }
+    const auto huge = settings::withChanges({}, {{"audio.bufferSize", 1e20}});
+    REQUIRE_FALSE(huge);
+    CHECK(messages(huge.error()) ==
+          std::vector<std::string>{"audio.bufferSize: 1e+20 samples is outside 0-8192 samples"});
+}
+
+TEST_CASE("the file sets what differs from the built-ins, and reads back the same") {
+    settings::Settings current;
+    current.piano.sine.gain = 0.5;
+    current.piano.tuning.a4Hz = 442.0;
+    current.audio.type = R"(My "ASIO" \ device)";
+    current.midi.inputs = {"Digital Piano", "Pads"};
+    const std::string text = settings::settingsText(current);
+    CHECK(text.contains("\ngain = 0.5\n"));
+    CHECK(text.contains("\na4Hz = 442\n"));
+    CHECK(text.contains("\n# releaseT60 = 0.25\n"));
+    CHECK(text.contains("\ninputs = [\"Digital Piano\", \"Pads\"]\n"));
+
+    const auto loaded = parse(text);
+    CHECK(loaded.warnings.empty());
+    CHECK(loaded.deviceWarnings.empty());
+    CHECK(settings::valuesOf(loaded.settings) == settings::valuesOf(current));
+    CHECK(settings::settingsText(loaded.settings) == text);
+}
+
+TEST_CASE("saving replaces the file, keeping a copy only of one piano-lab didn't write") {
+    const fs::path folder = scratchFolder("saving");
+    const fs::path file = folder / "settings.toml";
+    const fs::path backup = folder / "settings.toml.bak";
+    settings::Settings current;
+
+    // No file yet: nothing to keep.
+    const auto first = settings::saveSettings(file, current, std::nullopt);
+    REQUIRE(first);
+    CHECK_FALSE(first->backup.has_value());
+    CHECK_FALSE(fs::exists(backup));
+
+    // Its own file, unchanged since: replaced without a copy.
+    current.piano.sine.gain = 0.5;
+    const auto second = settings::saveSettings(file, current, first->text);
+    REQUIRE(second);
+    CHECK_FALSE(second->backup.has_value());
+    const auto reloaded = settings::loadSettings(file);
+    REQUIRE(reloaded);
+    CHECK(reloaded->settings.piano.sine.gain == 0.5);
+    CHECK(reloaded->text == second->text);
+
+    // Edited by hand since: copied first, exactly as it was.
+    const std::string edited = second->text + "# my note\n";
+    writeText(file, edited);
+    current.piano.sine.gain = 0.75;
+    const auto third = settings::saveSettings(file, current, second->text);
+    REQUIRE(third);
+    REQUIRE(third->backup == backup);
+    const auto kept = pianolab::music_io::readBytes(backup);
+    REQUIRE(kept);
+    CHECK(std::string(reinterpret_cast<const char*>(kept->data()), kept->size()) == edited);
+
+    // A value changed by hand in piano-lab's own format still counts as an edit.
+    fs::remove(backup);
+    std::string retuned = third->text;
+    const auto at = retuned.find("\ngain = 0.75\n");
+    REQUIRE(at != std::string::npos);
+    retuned.replace(at, 13, "\ngain = 0.8\n");
+    writeText(file, retuned);
+    const auto fourth = settings::saveSettings(file, current, third->text);
+    REQUIRE(fourth);
+    CHECK(fourth->backup == backup);
+
+    // A hand-written file read at startup: copied, since its comment would be lost.
+    writeText(file, "[sine]\ngain = 0.5 # quieter\n");
+    const auto handWritten = settings::loadSettings(file);
+    REQUIRE(handWritten);
+    fs::remove(backup);
+    const auto fifth = settings::saveSettings(file, handWritten->settings, handWritten->text);
+    REQUIRE(fifth);
+    CHECK(fifth->backup == backup);
 }

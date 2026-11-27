@@ -1,7 +1,7 @@
+#include "sections.hpp"
+
 #include <pianolab/engine_core/config.hpp>
 #include <pianolab/engine_core/error.hpp>
-#include <pianolab/engine_core/tuning.hpp>
-#include <pianolab/models/sine_key.hpp>
 #include <pianolab/music_io/files.hpp>
 #include <pianolab/settings/settings.hpp>
 
@@ -9,9 +9,11 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -23,16 +25,17 @@ using engine_core::Field;
 
 namespace {
 
-/// The starter file's opening comment.
-constexpr std::string_view starterIntroduction =
+/// The settings file's opening comment.
+constexpr std::string_view introduction =
     R"(# piano-lab settings
 #
-# Only what you change needs to be here. Everything below is commented out, so it uses the
-# built-in value shown: remove the # in front of a setting to change it. Problems in this file
-# are reported (in the log, and by 'piano-lab render'), and the built-in value is used instead.
+# Only what you change needs to be here. A setting that is commented out uses the built-in value
+# shown: remove the # in front of it to change it. Problems in this file are reported (in the
+# log, and by 'piano-lab render'), and the built-in value is used instead.
 #
-# piano-lab wrote this file because there wasn't one. It never changes it afterwards, so delete
-# it to get a fresh one listing every setting of a newer version.
+# piano-lab rewrites this file when settings change in the app, so edit it while piano-lab is
+# stopped. Your own comments and anything piano-lab doesn't know aren't kept, but whenever the
+# file holds something piano-lab didn't write, it first copies it to settings.toml.bak.
 )";
 
 /// `text` as a TOML string in double quotes, with quotes, backslashes and control characters
@@ -52,42 +55,52 @@ std::string tomlString(std::string_view text) {
     return result + '"';
 }
 
-/// The starter file's lines for one number setting: its description and range, then the
-/// setting commented out with its built-in value from `defaults`. The value is written in full
-/// (the shortest text that reads back exactly), so uncommenting it never changes it.
-template <typename C, typename V>
-std::string starterLines(const Field<C, V>& field, const C& defaults) {
-    const std::string unit = field.unit.empty() ? std::string{} : std::format(" {}", field.unit);
-    return std::format("# {} ({}-{}{})\n# {} = {}\n", field.description,
-                       engine_core::formatValue(field.min), engine_core::formatValue(field.max),
-                       unit, field.name, defaults.*field.member);
+/// A number as TOML, in full (the shortest text that reads back exactly), so writing and reading
+/// it never changes it.
+template <typename V> std::string tomlValue(V value) {
+    return std::format("{}", value);
 }
 
-/// See the `Field` overload.
-template <typename C> std::string starterLines(const TextField<C>& field, const C& defaults) {
-    return std::format("# {}\n# {} = {}\n", field.description, field.name,
-                       tomlString(defaults.*field.member));
+/// See the number overload.
+std::string tomlValue(const std::string& text) {
+    return tomlString(text);
 }
 
-/// See the `Field` overload.
-template <typename C> std::string starterLines(const TextListField<C>& field, const C& defaults) {
+/// See the number overload.
+std::string tomlValue(const std::vector<std::string>& names) {
     std::string list;
-    for (const auto& name : defaults.*field.member) {
+    for (const auto& name : names) {
         list += list.empty() ? tomlString(name) : ", " + tomlString(name);
     }
-    return std::format("# {}\n# {} = [{}]\n", field.description, field.name, list);
+    return "[" + list + "]";
 }
 
-/// The starter file's section `section`: a comment saying what it's for (`about`), the header,
-/// and every one of `fields` (a tuple of fields for `C`) with its built-in value.
-template <typename C, typename... Fs>
-std::string starterSection(std::string_view section, std::string_view about,
-                           const std::tuple<Fs...>& fields) {
+/// The comment describing a number setting: what it is, and its range.
+template <typename C, typename V> std::string aboutLine(const Field<C, V>& field) {
+    return std::format("# {} ({}-{}{})\n", field.description, engine_core::formatValue(field.min),
+                       engine_core::formatValue(field.max), engine_core::unitSuffix(field));
+}
+
+/// See the `Field` overload.
+template <typename C> std::string aboutLine(const TextField<C>& field) {
+    return std::format("# {}\n", field.description);
+}
+
+/// See the `Field` overload.
+template <typename C> std::string aboutLine(const TextListField<C>& field) {
+    return std::format("# {}\n", field.description);
+}
+
+/// The file's lines for one setting: its description, then the setting with its value in
+/// `config` when that differs from the built-in one, or else commented out with the built-in
+/// value.
+template <typename C, typename F> std::string settingLines(const F& field, const C& config) {
     const C defaults{};
-    std::string text = std::format("\n# {}\n[{}]\n", about, section);
-    std::apply([&](const auto&... field) { ((text += "\n" + starterLines(field, defaults)), ...); },
-               fields);
-    return text;
+    const auto& value = config.*field.member;
+    const auto& builtIn = defaults.*field.member;
+    const bool changed = value != builtIn;
+    return std::format("{}{}{} = {}\n", aboutLine(field), changed ? "" : "# ", field.name,
+                       tomlValue(changed ? value : builtIn));
 }
 
 /// `text` as bytes, for writing.
@@ -103,6 +116,18 @@ std::string_view asText(std::span<const std::byte> bytes) {
         text.remove_prefix(byteOrderMark.size());
     }
     return text;
+}
+
+/// Whether `bytes` (a settings file on disk) is safe to replace without a copy: exactly the text
+/// piano-lab last read or wrote (`lastKnown`), and exactly what piano-lab writes for the settings
+/// it holds, so replacing it loses nothing.
+bool isOwnFile(std::span<const std::byte> bytes, const std::optional<std::string>& lastKnown) {
+    const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    if (!lastKnown || text != *lastKnown) {
+        return false;
+    }
+    const auto loaded = parseSettings(text, "");
+    return loaded && settingsText(loaded->settings) == text;
 }
 
 } // namespace
@@ -122,25 +147,58 @@ std::expected<Loaded, Error> loadSettings(const std::filesystem::path& path) {
     return parseSettings(asText(*bytes), music_io::displayPath(path));
 }
 
-std::string starterSettings() {
-    std::string text(starterIntroduction);
-    text += starterSection<AudioSettings>("audio", "The audio output the server plays through",
-                                          std::tuple_cat(audioTextFields, audioNumberFields));
-    text +=
-        starterSection<MidiSettings>("midi", "The MIDI inputs the server listens to", midiFields);
-    text += starterSection<engine_core::TuningConfig>("tuning", "How the piano is tuned",
-                                                      engine_core::tuningConfigFields);
-    text += starterSection<models::SineConfig>("sine", "The sine key model: one sine per key",
-                                               models::sineConfigFields);
-    text += starterSection<engine_core::RenderConfig>(
-        "render", "How the engine renders (the sample rate comes from the audio device)",
-        renderFileFields);
+std::string settingsText(const Settings& settings) {
+    std::string text(introduction);
+    detail::forEachSection(settings, [&](const detail::Section& section, const auto& part,
+                                         const auto& fields) {
+        text += std::format("\n# {}\n[{}]\n", section.about, section.name);
+        std::apply([&](const auto&... field) { ((text += "\n" + settingLines(field, part)), ...); },
+                   fields);
+    });
     return text;
+}
+
+std::string starterSettings() {
+    return settingsText(Settings{});
 }
 
 std::expected<void, Error> writeStarterSettings(const std::filesystem::path& path) {
     const std::string text = starterSettings();
     return music_io::writeBytes(path, asBytes(text));
+}
+
+std::expected<Saved, Error> saveSettings(const std::filesystem::path& path,
+                                         const Settings& settings,
+                                         const std::optional<std::string>& lastKnown) {
+    Saved saved{.text = settingsText(settings), .backup = std::nullopt};
+
+    std::error_code error;
+    const bool exists = std::filesystem::exists(path, error);
+    if (error) {
+        return std::unexpected(Error{
+            std::format("couldn't check {}: {}", music_io::displayPath(path), error.message())});
+    }
+    if (exists) {
+        const auto bytes = music_io::readBytes(path);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        if (!isOwnFile(*bytes, lastKnown)) {
+            std::filesystem::path backup = path;
+            backup += backupSuffix;
+            if (const auto copied = music_io::writeBytes(backup, *bytes); !copied) {
+                return std::unexpected(
+                    Error{std::format("didn't save {}: couldn't keep a copy "
+                                      "of it first: {}",
+                                      music_io::displayPath(path), copied.error().message)});
+            }
+            saved.backup = std::move(backup);
+        }
+    }
+    if (const auto written = music_io::writeBytes(path, asBytes(saved.text)); !written) {
+        return std::unexpected(written.error());
+    }
+    return saved;
 }
 
 } // namespace pianolab::settings

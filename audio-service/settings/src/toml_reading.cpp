@@ -1,6 +1,8 @@
 // Reading settings from TOML. The one place that uses toml++: it's header-only, so it's included
 // here alone and configured on the CMake target (no exceptions: parsing returns a result).
 
+#include "sections.hpp"
+
 #include <pianolab/engine_core/config.hpp>
 #include <pianolab/engine_core/error.hpp>
 #include <pianolab/engine_core/tuning.hpp>
@@ -283,12 +285,10 @@ std::expected<Loaded, Error> parseSettings(std::string_view text, std::string_vi
 
     Reader reader{.source = source, .problems = {}};
     Settings settings;
-    readSection(reader, root, "render", settings.piano.render, renderFileFields);
-    readSection(reader, root, "tuning", settings.piano.tuning, engine_core::tuningConfigFields);
-    readSection(reader, root, "sine", settings.piano.sine, models::sineConfigFields);
-    readSection(reader, root, "audio", settings.audio,
-                std::tuple_cat(audioTextFields, audioNumberFields));
-    readSection(reader, root, "midi", settings.midi, midiFields);
+    detail::forEachSection(settings,
+                           [&](const detail::Section& section, auto& part, const auto& fields) {
+                               readSection(reader, root, section.name, part, fields);
+                           });
 
     for (const auto& [key, value] : root) {
         if (std::ranges::find(sectionNames, key.str()) == sectionNames.end()) {
@@ -296,7 +296,10 @@ std::expected<Loaded, Error> parseSettings(std::string_view text, std::string_vi
                    std::format("unknown section or setting '{}'; ignored", key.str()));
         }
     }
-    Loaded loaded{.settings = std::move(settings), .warnings = {}, .deviceWarnings = {}};
+    Loaded loaded{.settings = std::move(settings),
+                  .text = std::string(text),
+                  .warnings = {},
+                  .deviceWarnings = {}};
     addWarnings(std::move(reader), loaded);
     return loaded;
 }
