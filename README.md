@@ -2,7 +2,7 @@
 
 A physically modelled grand piano. Strings, hammers, bridge and soundboard are simulated in real time rather than played back from samples, and the instrument is voiced by ear through A/B and ABX listening tests instead of being fitted to recordings.
 
-The goal is a high-quality piano that's **free, for a large audience, with low friction**. A local program runs the physics, audio and MIDI, and serves a web UI you can use on the same computer or from a phone on your local network. See [docs/vision.md](docs/vision.md).
+The goal is a high-quality piano that's **free, for a large audience, with low friction**. A local program runs the physics, audio and MIDI, and serves a touch-first web UI on the same computer, or, if you turn on network mode, to a paired phone on your local network. See [docs/vision.md](docs/vision.md).
 
 It's a hobby project, in early days. Today it plays a plain sine per key from a MIDI keyboard: the real engine at its simplest.
 
@@ -18,13 +18,13 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `engine/models` | Physical models: strings, hammers, bridge, soundboard |
 | `engine/calibration` | Fitting model parameters to measurements and listening tests |
 | `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `backend/` | **The backend:** the program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), and later the web server and control protocol. |
+| `backend/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames the folders to say what each part does (`sound-engine/`, `audio-service/`, `web-ui/`) and adds the TypeScript `web-server/` and `web-api/`. |
 | `backend/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
 | `backend/server` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
 | `backend/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
 | `backend/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
 | `backend/logging` | The backend's log (console and file), with spdlog behind our own small interface |
-| `ui/` | **The UI:** a React web app (from step 0.7) |
+| `ui/` | **The UI:** a touch-first React web app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
 | `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
