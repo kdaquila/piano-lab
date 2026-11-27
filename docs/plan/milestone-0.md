@@ -15,6 +15,7 @@
 | [0.3](#03-offline-render-to-wav) | Offline render to WAV: MIDI or MusicXML in, WAV out, no devices | Done ([#5](https://github.com/kdaquila/piano-lab/pull/5)) |
 | [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
+| [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | In review |
 | [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
 | [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
 | [0.8](#08-latency-measurement) | Latency measurement across Windows audio modes | Not started |
@@ -61,7 +62,7 @@
   - clang-tidy: the bugprone, performance, modernize and concurrency groups, plus curated readability and Core Guidelines checks
   - An AddressSanitizer test preset
   - The ported no-allocation test (arrives in 0.2, with the rendering code it checks)
-  - One check script (`tools/check.ps1`) that formats, lints, builds and tests: the same gate for you, me and agents
+  - One check command that formats, lints, builds and tests: the same gate for you, me and agents. First `tools/check.ps1`; since [step 0.6 prelude](#06-prelude-developer-commands-through-npm) `npm run check`
 - Tools to install at the start of the step if missing: LLVM (clang-format, clang-tidy), CMake, Ninja.
 - **Editor: VS Code + clangd.** CMake presets export `compile_commands.json` so clangd (and any agent tooling) sees the exact build. The repo ships `.clang-format`, `.clang-tidy` and recommended VS Code extensions. Visual Studio 2022 stays available as the heavy-duty debugger.
 
@@ -194,6 +195,26 @@
 - **A sample rate or buffer size the device can't do** is logged and the device's closest one used (JUCE's own choice). `bufferSize = 0` means the device's own.
 - **`render` sounds like the live piano:** it uses the install folder's `settings.toml` (only its piano sections) unless `--settings <file>` names another. A `--settings` file that's missing or broken stops the render (nothing is written), because the caller asked for it specifically; a broken install file is a warning and the built-ins are used.
 
+## 0.6 prelude: developer commands through npm
+
+**What:** one cargo/npm-like entry point for every developer task, replacing `tools/dev-shell.ps1` and `tools/check.ps1`.
+
+**Includes:**
+- `package.json` at the root, listing every task: `build:server`, `test:server`, `format:server`, `lint:server`, `check:server` and `start:server`, each one TypeScript file under `scripts/server/`, and `render`
+- The plain `build`, `test`, `format`, `lint`, `check` and `start` run every part's task with npm-run-all2 (`run-s build:*`)
+- The scripts load the Visual Studio x64 environment themselves, for the programs they start only
+
+**Acceptance checks:**
+- `npm run check` passes from a plain Windows PowerShell 5.1 terminal, and leaves its environment unchanged
+- The README, agent rules and docs use the npm commands
+
+**Decisions:**
+- **TypeScript task scripts, run directly by Node** (type stripping, stable since Node 24.12; no tsx or build step), one file per task. Easier to read and maintain than PowerShell, just, Task or make, cross-platform, and Node arrives for the UI anyway.
+- **npm-run-all2 for the aggregates**, rather than a task runner of our own: `package.json` stays the one list of tasks, and the UI's `:ui` tasks join the plain commands without edits. The plain commands take no arguments; presets go to the part (`npm run test:server -- release`).
+- **Node 24.15 or newer** (npm-run-all2's minimum), enforced by `engines` with `engine-strict`.
+- **`npm run check` type-checks the scripts** with `tsc` (TypeScript and `@types/node` as exact-pinned dev dependencies).
+- **Naming:** plain names run every part; `:server` (and from 0.7, `:ui`) run one.
+
 ## 0.6 Control server
 
 **What:** the backend serves the UI and talks to it over the local network.
@@ -237,6 +258,7 @@
 
 **Decisions:**
 - **A modern, customisable interface:** users decide what's on screen (e.g. show, hide or move the log panel), rather than the app offering fixed modes. 0.7 lays the groundwork; full customisation can grow over later milestones.
+- **Developer commands:** the UI adds its `:ui` tasks (`build:ui`, `test:ui`, ...) to `package.json`, and the plain `build`, `test`, `check`, ... pick them up through their `run-s` globs. `ui/` becomes an npm workspace of the root `package.json`.
 - **Stack:** npm; TypeScript + React + Vite; **MUI** (Material UI) as the component library, styled with the `sx` prop. Other skins (e.g. Tailwind) are a fun later option, but prototyping shouldn't require building a design system.
 - **State: Zustand**, with a disciplined, **normalized** store: flat collections keyed by id, no deep state trees.
 - **Protocol types: TypeBox** validators for every message, with TypeScript types derived from them. Incoming backend messages are validated at the boundary.

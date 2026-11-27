@@ -37,3 +37,4 @@ Only the current milestone is planned in detail. Later ones get broken down when
 
 ## History
 - **2026-11-21: stack changed from Rust to C++/JUCE + React**, and the architecture became a local backend with a web UI reachable over the local network. Steps 0.1–0.2 were first built in Rust (PRs on GitHub); their design decisions carry over, as listed in [vision.md](../vision.md#what-carries-over-from-the-rust-prototype).
+- **2026-11-27: developer commands moved to npm** ([step 0.6 prelude](milestone-0.md#06-prelude-developer-commands-through-npm)). `package.json` at the root lists the tasks, each a TypeScript file under `scripts/` run directly by Node 24.15+ and type-checked by `tsc`. `build:server` and the like run one part; the plain names (`build`, `test`, `check`, ...) run every part through npm-run-all2. They load the Visual Studio environment themselves, which replaced `tools/dev-shell.ps1` and `tools/check.ps1`.

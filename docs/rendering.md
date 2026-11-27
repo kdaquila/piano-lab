@@ -3,10 +3,11 @@
 `piano-lab render` plays a music file through the piano engine and writes the sound to a WAV file, with no audio device. It's how AI agents (and tests) get the sound the piano makes, so they can measure it, and how you can hear an agent's test piece.
 
 ## Running it
-Build first (`cmake --build --preset dev`, after `. .\tools\dev-shell.ps1`), then:
+`npm run render` builds the dev preset, then runs it:
 ```powershell
-.\build\dev\backend\app\piano-lab.exe render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
+npm run render -- <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
 ```
+Paths are relative to the folder npm was run from. Once built, `.\build\dev\backend\app\piano-lab.exe render` takes the same arguments.
 - **Input:** a MIDI file (`.mid`, `.midi`) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`).
 - **Output:** a 32-bit float, mono WAV. By default it's the input's path with `.wav`, at 48 kHz.
 - **Settings:** the piano sounds as it does live. It uses the piano sections (`[tuning]`, `[sine]`, `[render]`) of `settings.toml` next to `piano-lab.exe`, if there is one, or of the file given with `--settings` instead; the summary line says which. To try a variation without touching the owner's settings, write a small file holding only what changes (e.g. `[sine]` `releaseT60 = 1.0`) and pass it with `--settings`. A `--settings` file that's missing or isn't valid TOML is an error; problems inside it are warnings. The sample rate is always `--sample-rate` (48 kHz by default), never the settings file.

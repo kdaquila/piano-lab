@@ -25,7 +25,7 @@ CMakeUserPresets.json
 # Crash dumps
 *.dmp
 
-# --- UI (Node, from step 0.7) ---------------------------------------------------------------------
+# --- Node: the task scripts, and the UI (from step 0.7) ---------------------------------------------------------------------
 
 node_modules/
 dist/

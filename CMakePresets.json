@@ -5,7 +5,7 @@
         {
             "name": "windows-msvc",
             "hidden": true,
-            "description": "MSVC + Ninja. Needs the Visual Studio developer environment (tools/dev-shell.ps1 sets it up; VS Code's CMake Tools does it automatically).",
+            "description": "MSVC + Ninja. Needs the Visual Studio developer environment (the npm commands set it up; VS Code's CMake Tools does it automatically).",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "architecture": { "value": "x64", "strategy": "external" },
