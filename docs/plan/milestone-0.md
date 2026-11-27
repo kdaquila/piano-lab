@@ -15,7 +15,7 @@
 | [0.3](#03-offline-render-to-wav) | Offline render to WAV: MIDI or MusicXML in, WAV out, no devices | Done ([#5](https://github.com/kdaquila/piano-lab/pull/5)) |
 | [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
-| [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | In review |
+| [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | Done ([#9](https://github.com/kdaquila/piano-lab/pull/9)) |
 | [0.6](#06-control-server) | Control server: embedded HTTP + WebSocket, protocol v0 | Not started |
 | [0.7](#07-react-ui) | React UI: mobile-first, served by the backend, local window + phone | Not started |
 | [0.8](#08-latency-measurement) | Latency measurement across Windows audio modes | Not started |
