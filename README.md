@@ -18,13 +18,12 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `engine/models` | Physical models: strings, hammers, bridge, soundboard |
 | `engine/calibration` | Fitting model parameters to measurements and listening tests |
 | `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `backend/` | **The backend:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network; from step 0.6 it talks only to the gateway. |
+| `backend/` | **The service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames this folder to `service/` and puts the TypeScript backend in `backend/`. |
 | `backend/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
 | `backend/server` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
 | `backend/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
 | `backend/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
 | `backend/logging` | The backend's log (console and file), with spdlog behind our own small interface |
-| `gateway/` | **The gateway:** the TypeScript program that serves the UI and the control API, and runs the backend (from step 0.6) |
 | `ui/` | **The UI:** a touch-first React web app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |

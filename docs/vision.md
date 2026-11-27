@@ -8,25 +8,25 @@ A high-quality, physically modelled piano that is **free, for a large audience, 
 ## The key idea: a local piano you can play, tweak and hack on
 piano-lab is a local instrument: it runs on your own computer, next to your keyboard, and everything about it is open to change, from the sound to the code to the API.
 
-- **The backend** runs the engine (the piano's physics) and owns the audio and MIDI devices. It never touches the network.
-- **The gateway** is the backend's only door to the outside: a small program that serves the UI and the control API, and passes validated commands to the backend.
+- **The service** runs the engine (the piano's physics) and owns the audio and MIDI devices. It never touches the network.
+- **The backend** is the service's only door to the outside: a small program that serves the UI and the control API, and passes validated commands to the service.
 - **The UI** is a web app, **designed for touch first**: a laptop's touchscreen or a touch monitor on the piano's music stand, and a mouse just as well. It runs on the same computer by default.
-- **On your local network, if you choose:** one setting lets a phone or tablet act as a remote, and lets scripts and tools on other machines drive the piano, after pairing. It's a local service for tinkerers, so it's as safe as the network it's on: secure your network, like anything else on it. See [Security first](#security-first).
+- **On your local network, if you choose:** one setting lets a phone or tablet act as a remote, and lets scripts and tools on other machines drive the piano, after pairing. It's a local instrument for tinkerers, so it's as safe as the network it's on: secure your network, like anything else on it. See [Security first](#security-first).
 
 **Terms used in these docs:**
 - The **engine** is the piano's physics and real-time plumbing: a library of standard C++ with no dependencies (`engine/`).
-- The **backend** is the C++ program that runs the engine. It owns the audio and MIDI devices (through JUCE), reads and writes the settings, and talks only to the gateway, over a local pipe (`backend/`).
-- The **gateway** is the TypeScript program on Node that faces the outside: it serves the UI, speaks the public control API (HTTP and WebSocket), pairs devices, and starts the backend (`gateway/`).
+- The **service** is the C++ program that runs the engine. It owns the audio and MIDI devices (through JUCE), reads and writes the settings, and talks only to the backend, over a local pipe (`service/`).
+- The **backend** is the TypeScript program on Node that faces the outside: it serves the UI, speaks the public control API (HTTP and WebSocket), pairs devices, and starts the service (`backend/`).
 - The **UI** is the React web app (`ui/`).
 
 ```
-                  ┌─────── piano-lab backend (C++) ───────┐
+                  ┌─────── piano-lab service (C++) ───────┐
 MIDI keyboard ───▶│ engine (physics) · audio · MIDI ·     │───▶ speakers / DAC
                   │ settings · recording                  │
                   └───────────────────┬───────────────────┘
                                       │ local pipe (validated commands only)
                   ┌───────────────────┴───────────────────┐
-                  │ piano-lab gateway (TypeScript, Node)  │
+                  │ piano-lab backend (TypeScript, Node)  │
                   │ serves the UI · control API (HTTP +   │
                   │ WebSocket) · pairing                  │
                   └───────────────────┬───────────────────┘
@@ -38,7 +38,7 @@ MIDI keyboard ───▶│ engine (physics) · audio · MIDI ·     │──
 ```
 
 ## An open control API
-The UI has no special access: it talks to piano-lab through the same **documented, versioned control protocol** anyone can use. On the computer itself, the gateway simply opens the UI in the user's browser, which makes this visible: the piano is a local service, and the UI is one client of it.
+The UI has no special access: it talks to piano-lab through the same **documented, versioned control protocol** anyone can use. On the computer itself, the backend simply opens the UI in the user's browser, which makes this visible: the piano is a local program, and the UI is one client of it.
 
 That opens the door to things we'd never build ourselves:
 - **Custom frontends:** a minimal stage UI, a teaching tool, a tablet layout, a hardware control surface
@@ -63,16 +63,16 @@ That opens the door to things we'd never build ourselves:
 | Part | Choice | Why |
 |---|---|---|
 | Engine | **Standard C++23**, no dependencies | Fast to build and test, portable to anything (offline rendering, plugin, other platforms, a future Python package), and cleanly MIT |
-| Backend | **C++ with JUCE 9** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
-| Gateway | **TypeScript on Node**, with **Fastify** (HTTP), **@fastify/websocket** (on **ws**) and **TypeBox** schemas | Keeps C++ off the network: everything that parses network input is memory-safe, and every route's schema is validated by Fastify before our code runs. Node is already the runtime `npx piano-lab` brings, and the TypeBox schemas are shared with the UI. Considered: C++ with cpp-httplib and nlohmann/json (C++ parsing untrusted input is the riskiest code we could write), Rust (memory-safe too, but a third language for a marginal gain), Express (no built-in schema validation) and tRPC (assumes TypeScript clients; our API is public). |
+| Service | **C++ with JUCE 9** | Mature, cross-platform audio devices (WASAPI shared, low-latency and exclusive; ASIO; ALSA/JACK; CoreAudio), MIDI, and plugin formats when we need them. Avoids the recurring gaps we hit in younger Rust audio crates. |
+| Backend | **TypeScript on Node**, with **Fastify** (HTTP), **@fastify/websocket** (on **ws**) and **TypeBox** schemas | Keeps C++ off the network: everything that parses network input is memory-safe, and every route's schema is validated by Fastify before our code runs. Node is already the runtime `npx piano-lab` brings, and the TypeBox schemas are shared with the UI. Considered: C++ with cpp-httplib and nlohmann/json (C++ parsing untrusted input is the riskiest code we could write), Rust (memory-safe too, but a third language for a marginal gain), Express (no built-in schema validation) and tRPC (assumes TypeScript clients; our API is public). |
 | Control API | **JSON over HTTP** for requests, one **WebSocket** for live traffic | A human-readable public API for frontends, scripts and AI tools; `curl`-able |
-| Backend ↔ gateway | The backend runs as the gateway's child process, talking over its **stdin/stdout pipes** | No network socket in C++ at all; the backend only ever reads commands the gateway has already validated |
-| Real-time plumbing | **rigtorp/SPSCQueue** (MIT), wrapped as our own `rt::SpscQueue<T>` | Fixed-capacity single-producer/single-consumer queues between the MIDI, gateway-pipe and audio threads; never allocates after setup |
+| Service ↔ backend | The service runs as the backend's child process, talking over its **stdin/stdout pipes** | No network socket in C++ at all; the service only ever reads commands the backend has already validated |
+| Real-time plumbing | **rigtorp/SPSCQueue** (MIT), wrapped as our own `rt::SpscQueue<T>` | Fixed-capacity single-producer/single-consumer queues between the MIDI, pipe-reader and audio threads; never allocates after setup |
 | Settings | **TOML** files, read with **toml++** (MIT) | Friendly to edit by hand, with comments; one `settings.toml` in the install folder holds only what the user changed |
 | Logging | **spdlog** (MIT), behind our own small `Log` interface | Levels, a coloured console and rotating log files out of the box; our interface keeps it swappable and lets tests collect messages instead |
 | UI | **TypeScript + React + Vite**, **MUI** components (`sx` prop for styling), **Zustand** state | One touch-first UI for touchscreens, phones, mouse and keyboard, and later the plugin window. MUI gives a rich component set without building a design system while prototyping; other skins (e.g. Tailwind) can come later. |
 | UI tooling | npm, **oxlint + oxfmt**, **Vitest + React Testing Library**, **Playwright** (plus Playwright MCP for agents) | Fast lint/format; unit, component and end-to-end tests; agents can drive and check the real UI during development |
-| Protocol types | **TypeBox**, in one package shared by the gateway and the UI | Type-safe runtime validators for every message, with TypeScript types derived from them; one definition of the public API |
+| Protocol types | **TypeBox**, in one package shared by the backend and the UI | Type-safe runtime validators for every message, with TypeScript types derived from them; one definition of the public API |
 | Build | CMake | Standard for C++/JUCE |
 | Developer commands | **npm scripts**, written in **TypeScript** and run directly by Node | One familiar entry point (`npm run build`, `npm test`, `npm run check`) for every part; easier to read and maintain than shell scripts, and cross-platform |
 | Code quality | Strict compiler warnings as errors, clang-tidy, clang-format, sanitizers in tests | Agents write most of the code; tooling and tests are their feedback loop |
@@ -84,26 +84,26 @@ Every user-facing surface (a command, an option, a mode, a file) is part of the 
 
 ### Dependency rules
 - **Pin every dependency** to an exact version or commit (C++ via CPM.cmake; npm packages as exact versions in `package.json`, locked by `package-lock.json`), and upgrade deliberately.
-- **Hide third-party libraries behind our own small interfaces.** Only one place in our code talks to each library, so swapping it later is a contained change (e.g. toml++ lives only inside `backend/settings`).
+- **Hide third-party libraries behind our own small interfaces.** Only one place in our code talks to each library, so swapping it later is a contained change (e.g. toml++ lives only inside `service/settings`).
 - **Header-only libraries are contained:** included from exactly one `.cpp` file, marked as system includes so our warning rules don't apply to them, and configured (`#define`s) in one place, on the CMake target. This keeps compile times, Windows-header clashes and configuration mismatches from spreading. *Exception:* small template libraries that include only standard headers (e.g. the SPSC queue) may be included wherever their wrapper type is used, since they carry none of those costs.
-- **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `backend/`; those live in `backend/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.
-- **Watch security advisories** for everything the gateway depends on, since it parses network input, and keep those up to date.
-- **The gateway's dependencies are few and earn their place.** Each one is attack surface and supply-chain risk, so it's exact-pinned, installed without install scripts, and only added when it does real security or correctness work (e.g. Fastify's schema validation).
+- **The engine is JUCE-free, standard C++ only.** Nothing in `engine/` depends on JUCE, networking, JSON, UI code or `service/`; those live in `service/`. The build enforces this: it refuses to configure if an engine library links anything outside its allowed list. The physics engine stays portable, fast to test and cleanly MIT.
+- **Watch security advisories** for everything the backend depends on, since it parses network input, and keep those up to date.
+- **The backend's dependencies are few and earn their place.** Each one is attack surface and supply-chain risk, so it's exact-pinned, installed without install scripts, and only added when it does real security or correctness work (e.g. Fastify's schema validation).
 
 ## The music never stops
-An error must never interrupt someone playing, in any build. The engine recovers from every problem it can (and there's a defined fallback for each), records it, and keeps playing. The backend logs everything (it's a single-user local program, so it can log freely), and the UI shows problems in a log and error panel the user can show or hide like any other part of the interface. See [docs/coding-style.md](coding-style.md).
+An error must never interrupt someone playing, in any build. The engine recovers from every problem it can (and there's a defined fallback for each), records it, and keeps playing. The service logs everything (it's a single-user local program, so it can log freely), and the UI shows problems in a log and error panel the user can show or hide like any other part of the interface. See [docs/coding-style.md](coding-style.md).
 
 ## Performance: scale by presets, not by targeting the weakest machine
 We don't tune for small boards up front. Instead, quality is **customisable**: presets can trade quality for CPU (fewer modes per string, simpler soundboard, lower polyphony for sympathetic resonance, etc.), so weaker hardware still plays flawlessly at reduced detail. The original target stays the reference: the sustain-pedal worst case under 50% of one core on a normal Windows laptop.
 
 ## Security first
 piano-lab listens for connections, so it's treated as something worth attacking, even as a piano app: AI-assisted attacks make small targets worthwhile. Nothing it handles is private (it's music and settings), so the thing to protect is **the user's computer**: no bug in piano-lab may let anyone run code on it. Most of the effort therefore goes into keeping the attack surface small.
-- **C++ never touches the network.** All network input is parsed by the gateway, in memory-safe TypeScript, with every route's schema enforced by Fastify. The backend only reads commands the gateway already validated, over a local pipe. Memory-safety bugs in C++ that parses untrusted input are the classic way in; we don't write such code.
+- **C++ never touches the network.** All network input is parsed by the backend, in memory-safe TypeScript, with every route's schema enforced by Fastify. The service only reads commands the backend already validated, over a local pipe. Memory-safety bugs in C++ that parses untrusted input are the classic way in; we don't write such code.
 - **`localhost` by default.** Out of the box, nothing on the network can reach piano-lab at all.
 - **Network mode is opt-in** (`[server] listen = "network"`), and every device on the network must **pair** first: a short code shown at startup, entered once. Before pairing, almost nothing answers.
 - **Browser protections, always on:** `Host` and `Origin` checks and JSON-only requests, so websites in your own browser can't drive the piano, even on `localhost`.
 - **Deny by default, least privilege:** a small API with strict schemas and size limits; no file paths or uploads from the network; never run as admin; write only inside the install folder.
-- **The compiler's exploit mitigations** on the C++ (MSVC's Control Flow Guard and CET shadow-stack compatibility, plus ASLR and DEP), and **fuzz tests** for whatever the backend parses (the gateway's commands, music files).
+- **The compiler's exploit mitigations** on the C++ (MSVC's Control Flow Guard and CET shadow-stack compatibility, plus ASLR and DEP), and **fuzz tests** for whatever the service parses (the backend's commands, music files).
 - **A written threat model** (step 0.8, `docs/security.md`) that every security decision is checked against.
 - **Traffic isn't encrypted.** In network mode, piano-lab relies on the network's own security (WPA2/WPA3 at home). The user manual says so plainly, with ways to harden it, e.g. putting the laptop and phone on their own network such as the laptop's Mobile Hotspot. A self-signed certificate with an optional throwaway, name-constrained CA on the phone stays an option for later; any such route must cost nothing and need no cloud service of ours.
 - **Later:** discovery via mDNS, so a phone can find the piano without typing an IP address.
@@ -111,7 +111,7 @@ piano-lab listens for connections, so it's treated as something worth attacking,
 ## Distribution
 - **Source-first.** The public source is the product; building it is one command, and an agent can do it for you.
 - **No fees and no signing services, ever.** It's a free app: no paid code-signing certificates, no notarisation, no app stores, no cloud portals.
-- **Prebuilt binaries through npm** (later): public GitHub Actions builds compile the backend for each platform and publish it as npm packages (one per platform, picked automatically, the way esbuild and oxlint ship), next to the gateway and the built UI. `npx piano-lab` then starts the gateway, which starts the backend, with only Node installed. npm's provenance attestation shows which commit built each binary. To check first: how Windows' Smart App Control treats such binaries, and the JUCE and ASIO licence terms (see [Openness](#openness)).
+- **Prebuilt binaries through npm** (later): public GitHub Actions builds compile the service for each platform and publish it as npm packages (one per platform, picked automatically, the way esbuild and oxlint ship), next to the backend and the built UI. `npx piano-lab` then starts the backend, which starts the service, with only Node installed. npm's provenance attestation shows which commit built each binary. To check first: how Windows' Smart App Control treats such binaries, and the JUCE and ASIO licence terms (see [Openness](#openness)).
 - **"Install with your AI agent":** a short prompt in the README pointing an agent at step-by-step setup instructions written for agents, tested in a clean Windows Sandbox.
 
 ## Openness
