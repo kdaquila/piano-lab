@@ -83,22 +83,53 @@ try {
         $database = Get-Content build/dev/compile_commands.json -Raw | ConvertFrom-Json
         $built = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($entry in $database) {
-            [void] $built.Add([IO.Path]::GetFullPath($entry.file, $entry.directory))
+            [void] $built.Add([IO.Path]::GetFullPath([IO.Path]::Combine($entry.directory, $entry.file)))
         }
-        $notBuilt = @($sourceFiles | Where-Object { -not $built.Contains([IO.Path]::GetFullPath($_)) })
+        # Join with the repo root: Windows PowerShell 5.1 doesn't move .NET's working directory
+        # along with Push-Location, so a bare relative path would resolve against the wrong folder.
+        $notBuilt = @($sourceFiles | Where-Object {
+            -not $built.Contains([IO.Path]::GetFullPath((Join-Path $repoRoot $_)))
+        })
         if ($notBuilt) {
             Write-Host "Not part of any CMake target (add them to a CMakeLists.txt): $($notBuilt -join ', ')" -ForegroundColor Red
             $global:LASTEXITCODE = 1
             return
         }
 
-        # One clang-tidy per file, in parallel.
-        $failed = $sourceFiles | ForEach-Object -ThrottleLimit ([Environment]::ProcessorCount) -Parallel {
-            $output = clang-tidy -p build/dev --quiet $_ 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host ($output -join "`n")
-                $_
+        # One clang-tidy per file, at most one per CPU at a time. Plain .NET processes rather than
+        # ForEach-Object -Parallel, so the check runs in Windows PowerShell 5.1 as well as 7.
+        $clangTidy = (Get-Command clang-tidy).Source
+        $failed = @()
+        $queue = [Collections.Generic.Queue[string]]::new([string[]] $sourceFiles)
+        $running = [Collections.Generic.List[object]]::new()
+        while ($queue.Count -gt 0 -or $running.Count -gt 0) {
+            while ($queue.Count -gt 0 -and $running.Count -lt [Environment]::ProcessorCount) {
+                $file = $queue.Dequeue()
+                $info = [Diagnostics.ProcessStartInfo]::new($clangTidy, "-p build/dev --quiet `"$file`"")
+                $info.UseShellExecute = $false
+                $info.WorkingDirectory = $repoRoot
+                $info.RedirectStandardOutput = $true
+                $info.RedirectStandardError = $true
+                $process = [Diagnostics.Process]::Start($info)
+                # Read both streams as they come, so a full pipe can't stall clang-tidy.
+                $running.Add([pscustomobject] @{
+                    File    = $file
+                    Process = $process
+                    Stdout  = $process.StandardOutput.ReadToEndAsync()
+                    Stderr  = $process.StandardError.ReadToEndAsync()
+                })
             }
+            foreach ($job in @($running)) {
+                if (-not $job.Process.HasExited) { continue }
+                $job.Process.WaitForExit() # makes sure the output streams are complete
+                if ($job.Process.ExitCode -ne 0) {
+                    Write-Host ($job.Stdout.Result + $job.Stderr.Result).TrimEnd()
+                    $failed += $job.File
+                }
+                $job.Process.Dispose()
+                [void] $running.Remove($job)
+            }
+            Start-Sleep -Milliseconds 20
         }
         if ($failed) {
             Write-Host "clang-tidy found problems in: $($failed -join ', ')" -ForegroundColor Red
