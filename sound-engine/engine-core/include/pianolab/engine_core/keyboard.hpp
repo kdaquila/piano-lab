@@ -99,6 +99,25 @@ template <KeyModel K> void apply(Keyboard<K>& keyboard, const NoteEvent& event) 
     }
 }
 
+/// A key model that can take new settings while it plays: `adopt(live, fresh)` returns `live`
+/// with the settings of `fresh` (the same key built from new settings), keeping its sound.
+template <typename K>
+concept AdoptsSettings = KeyModel<K> && requires(const K& live, const K& fresh) {
+    { adopt(live, fresh) } noexcept -> std::same_as<K>;
+};
+
+/// Gives every key of `live` the settings of the matching key in `fresh`, a keyboard built from
+/// new settings at the same sample rate, and takes its `maxBlock`. Sounding keys carry on (see
+/// the model's `adopt`), and the diagnostics are kept. Real-time safe: never allocates, locks or
+/// throws, so the audio thread can call it between blocks.
+template <AdoptsSettings K>
+void adoptSettings(Keyboard<K>& live, const Keyboard<K>& fresh) noexcept {
+    for (std::size_t index = 0; index < keyCount; ++index) {
+        live.keys[index] = adopt(live.keys[index], fresh.keys[index]);
+    }
+    live.maxBlock = fresh.maxBlock;
+}
+
 /// True when every key is silent, so rendering more would only add zeros.
 template <KeyModel K> [[nodiscard]] bool allSilent(const Keyboard<K>& keyboard) noexcept {
     return std::ranges::all_of(keyboard.keys, [](const K& key) { return isSilent(key); });

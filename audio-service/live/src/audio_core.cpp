@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -33,6 +34,23 @@ void sortByArrival(std::span<LiveEvent> events) noexcept {
     }
 }
 
+/// Updates `held` for one event: a note-on holds its key down, a note-off lets it go. Notes off
+/// the keyboard change nothing.
+void updateHeld(HeldKeys& held, const engine_core::NoteEvent& event) noexcept {
+    // get_if rather than std::visit, which may throw.
+    const auto* on = std::get_if<engine_core::NoteOn>(&event);
+    const auto* off = std::get_if<engine_core::NoteOff>(&event);
+    const auto index = engine_core::keyIndex(on != nullptr    ? on->note
+                                             : off != nullptr ? off->note
+                                                              : 0);
+    if (!index) {
+        return;
+    }
+    const std::uint64_t bit = std::uint64_t{1} << (*index % 64);
+    std::uint64_t& word = held.at(*index / 64);
+    word = on != nullptr ? (word | bit) : (word & ~bit);
+}
+
 /// Takes waiting events from every input queue into `state.arrived`, in arrival order, and
 /// turns them into engine events at the start of the block in `state.blockEvents`.
 void collectEvents(AudioState& state, AudioLinks& links) noexcept {
@@ -49,10 +67,29 @@ void collectEvents(AudioState& state, AudioLinks& links) noexcept {
     }
     const auto arrived = std::span(state.arrived).first(count);
     sortByArrival(arrived);
+    const HeldKeys before = state.held;
     for (std::size_t index = 0; index < count; ++index) {
         state.blockEvents[index] = {.at = 0, .event = arrived[index].event};
+        updateHeld(state.held, arrived[index].event);
     }
     state.eventCount = count;
+    if (state.held != before) {
+        for (std::size_t word = 0; word < state.held.size(); ++word) {
+            links.heldKeys.at(word).store(state.held.at(word), std::memory_order_relaxed);
+        }
+    }
+}
+
+/// Raises `links.peak` to the loudest sample in `out`, unless it's already higher.
+void raisePeak(AudioLinks& links, std::span<const float> out) noexcept {
+    float loudest = 0.0F;
+    for (const float sample : out) {
+        loudest = std::max(loudest, std::abs(sample));
+    }
+    float current = links.peak.load(std::memory_order_relaxed);
+    while (loudest > current &&
+           !links.peak.compare_exchange_weak(current, loudest, std::memory_order_relaxed)) {
+    }
 }
 
 /// Copies `out` to the recorder in chunks, tagged with `session`. Counts what doesn't fit.
@@ -100,10 +137,23 @@ AudioState makeAudioState(const engine_core::Valid<models::PianoConfig>& config)
                       .arrived = std::vector<LiveEvent>(maxEventsPerBlock),
                       .blockEvents = std::vector<engine_core::TimedEvent>(maxEventsPerBlock),
                       .eventCount = 0,
-                      .publishedProblems = 0};
+                      .publishedProblems = 0,
+                      .held = {}};
+}
+
+HeldKeys heldKeys(const AudioLinks& links) noexcept {
+    return {links.heldKeys[0].load(std::memory_order_relaxed),
+            links.heldKeys[1].load(std::memory_order_relaxed)};
+}
+
+float takePeak(AudioLinks& links) noexcept {
+    return links.peak.exchange(0.0F, std::memory_order_relaxed);
 }
 
 void processBlock(AudioState& state, AudioLinks& links, std::span<float> out) noexcept {
+    while (const auto keyboard = links.keyboards.tryPop()) {
+        engine_core::adoptSettings(state.keyboard, *keyboard);
+    }
     collectEvents(state, links);
 
     // Render in pieces no longer than the keyboard's maxBlock; the events go in the first.
@@ -118,6 +168,8 @@ void processBlock(AudioState& state, AudioLinks& links, std::span<float> out) no
     if (out.empty() && !events.empty()) {
         engine_core::render(state.keyboard, out, events); // a zero-length block still plays notes
     }
+
+    raisePeak(links, out);
 
     if (const auto session = links.recordingSession.load(std::memory_order_acquire); session != 0) {
         sendToRecorder(links, session, out);

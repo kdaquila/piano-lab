@@ -30,6 +30,10 @@ using PianoKey = std::variant<SineKey>;
 /// True when the model `key` holds is quiet enough to skip rendering.
 [[nodiscard]] bool isSilent(const PianoKey& key) noexcept;
 
+/// `live` with the settings of `fresh`, the same key built from new settings, keeping its sound
+/// (see the model's own `adopt`). If `fresh` is another model, it replaces `live` outright.
+[[nodiscard]] PianoKey adopt(const PianoKey& live, const PianoKey& fresh) noexcept;
+
 /// The keyboard the audio service plays.
 using PianoKeyboard = engine_core::Keyboard<PianoKey>;
 

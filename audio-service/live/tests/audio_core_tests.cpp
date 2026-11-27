@@ -14,7 +14,9 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -23,6 +25,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace ec = pianolab::engine_core;
@@ -377,4 +380,63 @@ TEST_CASE("the recorder's own thread writes the recording in the background") {
         REQUIRE(recorder.stop());
     }
     CHECK(readWav(folder.path / "take.wav") == played);
+}
+
+TEST_CASE("a new keyboard's settings reach the ringing piano at the next block") {
+    auto links = live::makeAudioLinks(1);
+    auto state = live::makeAudioState(testConfig());
+    live::receiveMidi(*links, 0, noteOnBytes(69, 100), 0.0);
+    static_cast<void>(play(state, *links, 10));
+
+    models::PianoConfig changed = *testConfig();
+    changed.tuning.a4Hz = 442.0;
+    changed.render.maxBlock = 64;
+    const auto validated = models::validate(changed);
+    REQUIRE(validated.errors.empty());
+    REQUIRE(links->keyboards.tryPush(models::makePianoKeyboard(validated.config)));
+
+    const auto& a4 = std::get<models::SineKey>(state.keyboard.keys.at(69 - ec::lowestNote));
+    const double before = a4.state.amplitude;
+    static_cast<void>(play(state, *links, 1));
+    CHECK(a4.coeffs.phaseStep == 442.0 / sampleRate);
+    CHECK(state.keyboard.maxBlock == 64);
+    CHECK(a4.state.amplitude > before * 0.9); // still ringing
+    CHECK_FALSE(links->keyboards.tryPop().has_value());
+}
+
+TEST_CASE("the keys held down are published as they change") {
+    auto links = live::makeAudioLinks(2);
+    auto state = live::makeAudioState(testConfig());
+    CHECK(live::heldKeys(*links) == live::HeldKeys{});
+
+    live::receiveMidi(*links, 0, noteOnBytes(21, 100), 0.0);  // A0: key 0
+    live::receiveMidi(*links, 1, noteOnBytes(108, 100), 0.1); // C8: key 87
+    live::receiveMidi(*links, 0, noteOnBytes(60, 100), 0.2);  // C4: key 39
+    live::receiveMidi(*links, 0, noteOnBytes(5, 100), 0.3);   // off the keyboard: ignored
+    static_cast<void>(play(state, *links, 1));
+    CHECK(live::heldKeys(*links) ==
+          live::HeldKeys{(std::uint64_t{1} << 0U) | (std::uint64_t{1} << 39U),
+                         std::uint64_t{1} << (87U - 64U)});
+
+    live::receiveMidi(*links, 1, noteOffBytes(60), 0.4);
+    live::receiveMidi(*links, 0, noteOffBytes(21), 0.5);
+    static_cast<void>(play(state, *links, 1));
+    CHECK(live::heldKeys(*links) == live::HeldKeys{0, std::uint64_t{1} << (87U - 64U)});
+}
+
+TEST_CASE("the peak is the loudest sample since it was last taken") {
+    auto links = live::makeAudioLinks(1);
+    auto state = live::makeAudioState(testConfig());
+    static_cast<void>(play(state, *links, 2));
+    CHECK(live::takePeak(*links) == 0.0F);
+
+    live::receiveMidi(*links, 0, noteOnBytes(69, 127), 0.0);
+    const auto output = play(state, *links, 40);
+    float loudest = 0.0F;
+    for (const float sample : output) {
+        loudest = std::max(loudest, std::abs(sample));
+    }
+    CHECK(loudest > 0.1F);
+    CHECK(live::takePeak(*links) == loudest);
+    CHECK(live::takePeak(*links) == 0.0F); // taken
 }

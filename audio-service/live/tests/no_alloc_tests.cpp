@@ -40,6 +40,8 @@ TEST_CASE("the audio callback's work never allocates") {
     auto state = live::makeAudioState(validated.config);
     std::vector<float> block(1000);   // longer than maxBlock: split into pieces
     links->recordingSession.store(1); // as if recording
+    // A setting change waiting (the main thread's side), for the audio thread to adopt.
+    REQUIRE(links->keyboards.tryPush(pianolab::models::makePianoKeyboard(validated.config)));
 
     const auto count = countAllocations([&] {
         // Notes on both inputs (on the MIDI threads' side), including problems: a note off the

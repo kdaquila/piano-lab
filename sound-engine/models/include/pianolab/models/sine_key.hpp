@@ -108,6 +108,12 @@ struct SineKey {
 /// Adds the key's sound into `out` and returns the key's new state.
 [[nodiscard]] SineKey renderAdd(SineKey key, std::span<float> out) noexcept;
 
+/// `live` with the settings of `fresh` (the same key, built from new settings), keeping its
+/// sound: the phase and level carry on, so a ringing key changes pitch or speed without a
+/// click. The glide in progress takes the new attack or release speed; the level it glides
+/// toward stays, so a gain change is heard from the next strike.
+[[nodiscard]] SineKey adopt(SineKey live, const SineKey& fresh) noexcept;
+
 /// True when the key is released and quieter than its silence threshold.
 [[nodiscard]] bool isSilent(const SineKey& key) noexcept;
 

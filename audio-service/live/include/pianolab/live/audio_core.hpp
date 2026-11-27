@@ -2,6 +2,7 @@
 
 #include <pianolab/engine_core/config.hpp>
 #include <pianolab/engine_core/diagnostics.hpp>
+#include <pianolab/engine_core/keyboard.hpp>
 #include <pianolab/engine_core/note_event.hpp>
 #include <pianolab/live/live_midi.hpp>
 #include <pianolab/models/piano_key.hpp>
@@ -32,6 +33,14 @@ inline constexpr std::size_t recordedChunkSamples = 512;
 /// doesn't lose audio.
 inline constexpr std::size_t recordingQueueChunks = 1024;
 
+/// How many new keyboards (from setting changes) can wait for the audio thread. It takes them
+/// every block, so a few cover a fast slider drag.
+inline constexpr std::size_t keyboardQueueCapacity = 4;
+
+/// The keys held down, one bit per key (bit `i` of word `i / 64` is key `i`, A0 = 0).
+using HeldKeys = std::array<std::uint64_t, 2>;
+static_assert(sizeof(HeldKeys) * 8 >= engine_core::keyCount);
+
 /// A piece of the output on its way to the recorder.
 struct RecordedChunk {
     std::uint32_t session = 0; ///< which recording it belongs to
@@ -57,7 +66,23 @@ struct AudioLinks {
     std::atomic<std::uint64_t> droppedEvents{0};
     /// Pedal messages received, which the piano can't play yet.
     std::atomic<std::uint64_t> pedalMessages{0};
+    /// Keyboards built from new settings, at the device's sample rate. Producer: the main
+    /// thread; consumer: audio, which gives its keys the new settings (`adoptSettings`).
+    rt::SpscQueue<models::PianoKeyboard> keyboards{keyboardQueueCapacity};
+    /// The keys held down (see `HeldKeys`), as of the last block. Written by audio when they
+    /// change; read by the main thread. The two words are separate atomics, so a reader may
+    /// briefly see one word newer than the other; the next read is right.
+    std::array<std::atomic<std::uint64_t>, 2> heldKeys{};
+    /// The loudest output sample since the main thread last took it (`takePeak`), as an
+    /// absolute value. Raised by audio every block.
+    std::atomic<float> peak{0.0F};
 };
+
+/// The keys held down as the audio thread last published them (see `AudioLinks::heldKeys`).
+[[nodiscard]] HeldKeys heldKeys(const AudioLinks& links) noexcept;
+
+/// The loudest output sample since the last call, resetting it to 0. On the main thread.
+[[nodiscard]] float takePeak(AudioLinks& links) noexcept;
 
 /// Links for `inputCount` live inputs. Setup code: allocates.
 [[nodiscard]] std::unique_ptr<AudioLinks> makeAudioLinks(std::size_t inputCount);
@@ -78,17 +103,22 @@ struct AudioState {
     std::vector<engine_core::TimedEvent> blockEvents;
     std::size_t eventCount = 0;          ///< how many of `arrived`/`blockEvents` this block uses
     std::uint64_t publishedProblems = 0; ///< the diagnostics total last sent
+    HeldKeys held{};                     ///< the keys held down, from the events applied
 };
 
 /// The audio thread's state for a piano built from `config`. Setup code: allocates.
 [[nodiscard]] AudioState makeAudioState(const engine_core::Valid<models::PianoConfig>& config);
 
 /// Renders one block of output into `out` (overwriting it). The audio callback's whole job:
-///   1. takes every note waiting in the input queues and applies them at the start of the block,
-///      in the order they arrived (up to `maxEventsPerBlock`; any more wait for the next block);
-///   2. renders the piano, in pieces of at most the keyboard's `maxBlock`;
-///   3. while recording, copies the block to the recorder (counting what doesn't fit);
-///   4. sends the engine's diagnostics to the monitor when they change.
+///   1. gives the keys the settings of any new keyboard waiting (the newest last), so ringing
+///      notes carry on with the new settings;
+///   2. takes every note waiting in the input queues and applies them at the start of the block,
+///      in the order they arrived (up to `maxEventsPerBlock`; any more wait for the next block),
+///      publishing the keys held down when that changes;
+///   3. renders the piano, in pieces of at most the keyboard's `maxBlock`;
+///   4. raises the published peak to the block's loudest sample;
+///   5. while recording, copies the block to the recorder (counting what doesn't fit);
+///   6. sends the engine's diagnostics to the monitor when they change.
 /// Real-time safe: never allocates, locks, blocks or throws.
 void processBlock(AudioState& state, AudioLinks& links, std::span<float> out) noexcept;
 

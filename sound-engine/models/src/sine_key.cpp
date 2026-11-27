@@ -75,6 +75,12 @@ SineKey renderAdd(SineKey key, std::span<float> out) noexcept {
     return key;
 }
 
+SineKey adopt(SineKey live, const SineKey& fresh) noexcept {
+    live.coeffs = fresh.coeffs;
+    live.state.coeff = live.state.released ? fresh.coeffs.releaseCoeff : fresh.coeffs.attackCoeff;
+    return live;
+}
+
 bool isSilent(const SineKey& key) noexcept {
     return key.state.released && key.state.amplitude < key.coeffs.silenceThreshold;
 }

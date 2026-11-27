@@ -249,3 +249,76 @@ TEST_CASE("the sine settings change the sound") {
 
     CHECK_THAT(peak(out), WithinAbs(0.5, 0.01));
 }
+
+// --- Live setting changes
+// -------------------------------------------------------------------------
+
+namespace {
+
+/// The largest change between neighbouring samples: a click shows up as a big one.
+double maxStep(std::span<const float> samples) {
+    double result = 0.0;
+    for (std::size_t i = 1; i < samples.size(); ++i) {
+        result = std::max(result, static_cast<double>(std::abs(samples[i] - samples[i - 1])));
+    }
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("a ringing key takes new settings without a click") {
+    auto keyboard = makeKeyboard();
+    const std::array events{ec::noteOn(0, a4, 1.0F)};
+    auto out = ec::renderOffline(keyboard, events, seconds(0.2));
+
+    models::PianoConfig retuned = models::testing::testConfig();
+    retuned.tuning.a4Hz = 442.0;
+    retuned.render.maxBlock = 128;
+    ec::adoptSettings(keyboard, models::testing::makeTestKeyboard(retuned));
+    CHECK(keyboard.maxBlock == 128);
+
+    const auto after = ec::renderOffline(keyboard, {}, seconds(0.5));
+    out.insert(out.end(), after.begin(), after.end());
+
+    // As in the re-strike test: a smooth sine at full gain changes by at most 2*pi*f/SR*A per
+    // sample, and a click would be far bigger.
+    const double limit =
+        2.0 * 2.0 * std::numbers::pi * 442.0 / sampleRate * models::SineConfig{}.gain;
+    CHECK(maxStep(out) < limit);
+    CHECK_THAT(measureFrequency(after), WithinAbs(442.0, 0.1));
+    CHECK_THAT(peak(after), WithinAbs(models::SineConfig{}.gain, 0.01));
+    CHECK(keyboard.diagnostics.total == 0);
+}
+
+TEST_CASE("a fading key takes the new release time") {
+    const auto fadeWith = [](double releaseT60) {
+        auto keyboard = makeKeyboard();
+        const std::array events{ec::noteOn(0, a4, 1.0F), ec::noteOff(seconds(0.1), a4)};
+        static_cast<void>(ec::renderOffline(keyboard, events, seconds(0.15)));
+        models::PianoConfig config = models::testing::testConfig();
+        config.sine.releaseT60 = releaseT60;
+        ec::adoptSettings(keyboard, models::testing::makeTestKeyboard(config));
+        const auto later = ec::renderOffline(keyboard, {}, seconds(0.5));
+        return peak(std::span(later).last(seconds(0.05)));
+    };
+    // At the change the key has faded to about 0.063. With the built-in 0.25 s it is silent half
+    // a second later; with 10 s it has only fallen to about 0.045 (10^(-3 * 0.5 / 10) of it).
+    CHECK(fadeWith(models::SineConfig{}.releaseT60) < 1e-3F);
+    CHECK(fadeWith(10.0) > 0.03F);
+}
+
+TEST_CASE("a gain change is heard from the next strike") {
+    auto keyboard = makeKeyboard();
+    const std::array first{ec::noteOn(0, a4, 1.0F)};
+    static_cast<void>(ec::renderOffline(keyboard, first, seconds(0.1)));
+
+    models::PianoConfig louder = models::testing::testConfig();
+    louder.sine.gain = 0.5;
+    ec::adoptSettings(keyboard, models::testing::makeTestKeyboard(louder));
+    const auto ringing = ec::renderOffline(keyboard, {}, seconds(0.1));
+    CHECK_THAT(peak(ringing), WithinAbs(models::SineConfig{}.gain, 0.01));
+
+    const std::array again{ec::noteOn(0, a4, 1.0F)};
+    const auto struck = ec::renderOffline(keyboard, again, seconds(0.2));
+    CHECK_THAT(peak(std::span(struck).last(seconds(0.05))), WithinAbs(0.5, 0.01));
+}

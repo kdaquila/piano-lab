@@ -8,6 +8,7 @@
 
 #include <iterator>
 #include <span>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -16,6 +17,8 @@ namespace pianolab::models {
 
 static_assert(engine_core::KeyModel<SineKey>);
 static_assert(engine_core::KeyModel<PianoKey>);
+static_assert(engine_core::AdoptsSettings<SineKey>);
+static_assert(engine_core::AdoptsSettings<PianoKey>);
 
 namespace {
 
@@ -47,6 +50,17 @@ PianoKey release(const PianoKey& key) noexcept {
 PianoKey renderAdd(const PianoKey& key, std::span<float> out) noexcept {
     return dispatch<PianoKey>(
         key, [out](const auto& model) { return PianoKey{renderAdd(model, out)}; }, key);
+}
+
+PianoKey adopt(const PianoKey& live, const PianoKey& fresh) noexcept {
+    return dispatch<PianoKey>(
+        fresh,
+        [&live](const auto& model) {
+            using M = std::remove_cvref_t<decltype(model)>;
+            const auto* same = std::get_if<M>(&live);
+            return same != nullptr ? PianoKey{adopt(*same, model)} : PianoKey{model};
+        },
+        fresh);
 }
 
 bool isSilent(const PianoKey& key) noexcept {
