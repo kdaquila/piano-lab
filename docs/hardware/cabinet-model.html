@@ -236,16 +236,27 @@ scene.background = new THREE.Color(0xc9ccd1);
 // Environment lighting: a real living room (an HDRI photo) for lighting and reflections.
 // A simple virtual room stands in until the photo has loaded.
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const standInEnv = pmrem.fromScene(new RoomEnvironment(), 0.04);
+scene.environment = standInEnv.texture;
 scene.environmentIntensity = 0.5;
 new EXRLoader().load('textures/lebombo_2k.exr', t => {
   t.mapping = THREE.EquirectangularReflectionMapping;
   scene.environment = t;
-  pt.dirty = true;
-});
+  standInEnv.dispose(); pmrem.dispose();
+  ptChanged();
+}, undefined, () => loadFailed('lebombo_2k.exr'));
 
 // ---------- Textures (CC0; sources are listed in the README) ----------
-const loadingManager = new THREE.LoadingManager(() => { pt.dirty = true; });
+const loadingManager = new THREE.LoadingManager(() => ptChanged());
+loadingManager.onError = url => loadFailed(url.split('/').pop());
+// Textures can't load from a page opened as a local file: say so instead of failing silently.
+let loadErrorShown = false;
+function loadFailed(file) {
+  console.error(`Couldn't load textures/${file}`);
+  if (loadErrorShown) return;
+  loadErrorShown = true;
+  toast('Textures didn\'t load. Serve this folder over http (see the README).', 8000);
+}
 const texLoader = new THREE.TextureLoader(loadingManager);
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 function tex(file, srgb = false) {
@@ -263,7 +274,8 @@ const TEX = {
 };
 
 // Path tracer state (set up further down); declared early so loaders can mark it out of date.
-const pt = { on: false, tracer: null, dirty: true };
+const pt = { on: false, tracer: null, dirty: true, changedAt: 0 };
+function ptChanged() { pt.dirty = true; pt.changedAt = performance.now(); }
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 50);
 camera.position.set(1.6, 1.4, 2.4);
@@ -273,8 +285,8 @@ controls.target.set(0, 0.65, 0);
 controls.enableDamping = true;
 controls.update();
 
-// The environment now supplies most of the fill light, so the hemisphere light is turned down.
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 0.2));
+// The HDRI supplies the fill light. (No hemisphere light: the path tracer ignores those,
+// so the real-time view and the path-traced still would be lit differently.)
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(2, 4, 3);
 sun.castShadow = true;
@@ -326,9 +338,9 @@ const skin = {
 };
 skin.wood.transparent = true;
 
-// Textures are mapped by real size, not stretched per face: each face is projected along its
-// main axis, so grain runs up the sides and front and across the top (the image's grain runs along v).
-// A per-part offset keeps neighbouring boards from showing the same patch of grain.
+// Textures are mapped by real size, not stretched per face (the image's grain runs along v).
+// Boxes: each face is projected along its main axis, so grain runs up the sides and front and
+// across the top. A per-part offset keeps neighbouring boards from showing the same patch of grain.
 const UV_TILE = new Map([[mat.wood, 0.9], [skin.wood, 0.9], [mat.woodDark, 0.9], [skin.fabric, 0.25], [mat.brass, 0.25]]);
 function boxUV(geo, tile, seed) {
   const pos = geo.attributes.position, nor = geo.attributes.normal;
@@ -340,6 +352,22 @@ function boxUV(geo, tile, seed) {
     if (ay >= ax && ay >= az) { u = pos.getZ(i); v = pos.getX(i); }   // top and bottom: grain left to right
     else if (ax >= az)        { u = pos.getZ(i); v = pos.getY(i); }   // sides: grain vertical
     else                      { u = pos.getX(i); v = pos.getY(i); }   // front and back: grain vertical
+    uv[2 * i] = u / tile + ou; uv[2 * i + 1] = v / tile + ov;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+// Extruded parts (side panels, cheek blocks, pedals): the flat faces use the shape's own
+// coordinates, and the edge faces run the grain along the profile, like veneer bent around a
+// curve, so it doesn't jump where a curve turns. Distance along the profile is approximated by
+// y - x, which keeps growing all the way round these profiles' visible edges.
+function profileUV(geo, tile, seed) {
+  const pos = geo.attributes.position, nor = geo.attributes.normal;
+  const uv = new Float32Array(pos.count * 2);
+  const ou = (seed * 0.6180339) % 1, ov = (seed * 0.3710297) % 1;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const cap = Math.abs(nor.getZ(i)) > 0.7;
+    const u = cap ? x : z, v = cap ? y : y - x;
     uv[2 * i] = u / tile + ou; uv[2 * i + 1] = v / tile + ov;
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -518,6 +546,7 @@ function build(P) {
       depth: SIDE - 2 * BEV, bevelEnabled: true, bevelThickness: BEV, bevelSize: BEV, bevelOffset: -BEV, bevelSegments: 2,
     }), mat.wood);
     m.geometry.translate(0, 0, BEV);
+    m.userData.profileUV = true;
     m.rotation.y = -Math.PI / 2;           // shape u -> world z, extrusion -> world -x
     m.position.x = xOuterToInner;          // panel spans [x - SIDE, x]
     m.name = name;
@@ -631,6 +660,7 @@ function build(P) {
       mat.wood
     );
     arm.geometry.translate(0, 0, BEV);
+    arm.userData.profileUV = true;
     arm.rotation.y = -Math.PI / 2;      // shape u -> world z, extrusion -> world -x
     arm.position.x = x1;                // block spans [x0, x1]
     arm.name = `arm-${n}`;
@@ -695,6 +725,7 @@ function build(P) {
     pedal.rotation.x = -P.pedalTilt;                     // foot pad tilts up towards the front
     pedals.add(pedal);
     const m = new THREE.Mesh(pedalGeo, mat.brass);
+    m.userData.profileUV = true;
     m.rotation.x = -Math.PI / 2;  // shape v -> world -z (forward is +z), extrusion -> world +y
     m.castShadow = true;
     pedal.add(m);
@@ -854,14 +885,18 @@ function rebuild() {
   }
   const P = toModelUnits(params);
   current = build(P);
+  // Map each geometry once: the three pedals share one.
   let seed = 1;
+  const mapped = new Set();
   current.piano.traverse(o => {
     const tile = o.isMesh && UV_TILE.get(o.material);
-    if (tile) boxUV(o.geometry, tile, seed++);
+    if (!tile || mapped.has(o.geometry)) return;
+    mapped.add(o.geometry);
+    (o.userData.profileUV ? profileUV : boxUV)(o.geometry, tile, seed++);
   });
   scene.add(current.piano);
   applyShelf(shelfSel.value);
-  pt.dirty = true;
+  ptChanged();
   const report = measure(P, current.m);
   renderReport(report);
   window.piano = { ...window.piano, ...current, params, report };
@@ -876,12 +911,12 @@ function applyShelf(v) {
   if (!current) return;
   current.phone.visible = v === 'phone'; current.tablet.visible = v === 'tablet'; current.music.visible = v === 'music';
 }
-shelfSel.addEventListener('change', () => { applyShelf(shelfSel.value); pt.dirty = true; });
+shelfSel.addEventListener('change', () => { applyShelf(shelfSel.value); ptChanged(); });
 
 const xray = document.getElementById('xray');
 xray.addEventListener('change', () => {
   for (const m of Object.values(skin)) { m.opacity = xray.checked ? 0.12 : 1; m.depthWrite = !xray.checked; }
-  pt.dirty = true;
+  ptChanged();
 });
 // Finish: sets the cabinet wood, inner wood and grille fabric together.
 // Colours multiply the textures (white shows the texture as photographed). The fabric photo is dark,
@@ -908,22 +943,24 @@ function applyFinish(name) {
   setWoodMaps(mat.woodDark, f.grain);
   mat.woodDark.color.setHex(f.woodDark);
   skin.fabric.color.setRGB(...f.fabric);
-  pt.dirty = true;
+  ptChanged();
 }
 const finishSel = document.getElementById('finish');
 finishSel.addEventListener('change', () => applyFinish(finishSel.value));
 applyFinish(finishSel.value);
 
 const wallBox = document.getElementById('wall');
-wallBox.addEventListener('change', () => { wall.visible = wallBox.checked; pt.dirty = true; });
+wallBox.addEventListener('change', () => { wall.visible = wallBox.checked; ptChanged(); });
 
 // ---------- Path-traced still ----------
 // Off: the normal real-time view. On: three-gpu-pathtracer refines the same scene sample by sample
 // (soft shadows, true reflections, light bouncing between surfaces). Orbiting restarts it.
 const PT_MAX_SAMPLES = 2000;
+const PT_SETTLE_MS = 250;
 const ptBox = document.getElementById('pathtrace');
 const ptBar = document.getElementById('ptbar');
 const ptStatus = document.getElementById('ptstatus');
+const ptSave = document.getElementById('ptsave');
 ptBox.addEventListener('change', () => {
   pt.on = ptBox.checked;
   ptBar.hidden = !pt.on;
@@ -937,9 +974,9 @@ ptBox.addEventListener('change', () => {
     pt.tracer.minSamples = 1;
     window.piano.pt = pt;
   }
-  pt.dirty = true;
+  ptChanged();
 });
-document.getElementById('ptsave').addEventListener('click', () => {
+ptSave.addEventListener('click', () => {
   // Draw once more and read the canvas in the same task, before the browser clears it.
   pt.tracer.renderSample();
   renderer.domElement.toBlob(blob => {
@@ -954,9 +991,9 @@ document.getElementById('ptsave').addEventListener('click', () => {
 // ---------- Slider panel ----------
 const toastEl = document.getElementById('toast');
 let toastTimer;
-function toast(text) {
+function toast(text, ms = 1800) {
   toastEl.textContent = text; toastEl.style.opacity = 1;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 1800);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, ms);
 }
 const round = v => Math.round(v * 1e4) / 1e4;
 const isChanged = k => Math.abs(params[k] - DEFAULTS[k]) > 1e-9;
@@ -1041,15 +1078,20 @@ addEventListener('resize', () => {
 renderer.setAnimationLoop(() => {
   if (dirty) { dirty = false; rebuild(); }
   const moved = controls.update();
-  if (pt.on) {
-    const t = pt.tracer;
+  const t = pt.tracer;
+  // Rebuilding the path tracer's scene (BVH, textures) is slow, so while a slider is still moving
+  // the real-time view shows instead, and the rebuild waits until changes settle.
+  const settling = pt.dirty && performance.now() - pt.changedAt < PT_SETTLE_MS;
+  if (pt.on && !settling) {
     if (pt.dirty) { pt.dirty = false; t.setScene(scene, camera); }
     else if (moved) t.updateCamera();
     t.pausePathTracing = t.samples >= PT_MAX_SAMPLES;
     t.renderSample();
     ptStatus.textContent = t.isCompiling ? 'Compiling…' : `${Math.floor(t.samples)} / ${PT_MAX_SAMPLES} samples`;
+    ptSave.disabled = t.isCompiling || t.samples < 1;
   } else {
     renderer.render(scene, camera);
+    if (pt.on) { ptStatus.textContent = 'Updating…'; ptSave.disabled = true; }
   }
 });
 </script>
