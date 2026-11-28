@@ -36,9 +36,9 @@ export function buildDir(preset: Preset): string {
     return join(repoRoot, 'build', preset);
 }
 
-/** The piano-lab program built by a preset. */
+/** The audio service program built by a preset. */
 export function programPath(preset: Preset): string {
-    return join(buildDir(preset), 'audio-service', 'app', 'piano-lab.exe');
+    return join(buildDir(preset), 'audio-service', 'app', 'piano-lab-audio.exe');
 }
 
 /**

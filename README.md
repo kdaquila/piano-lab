@@ -19,11 +19,13 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `sound-engine/calibration` | Fitting model parameters to measurements and listening tests |
 | `sound-engine/rt` | Real-time plumbing shared with the audio service, such as lock-free queues |
 | `audio-service/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network: from step 0.6 the TypeScript web server (`web-server/`) drives it. |
-| `audio-service/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
-| `audio-service/live` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
+| `audio-service/app` | `piano-lab-audio`, the audio service's program. Its subcommands are its roles: `run` (started by the web server) and `render` |
+| `audio-service/live` | The live piano: the audio core (lock-free queues, the per-block audio work, recording), JUCE's audio and MIDI devices, and answering the web server's commands |
 | `audio-service/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
 | `audio-service/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
 | `audio-service/logging` | The audio service's log (console and file), with spdlog behind our own small interface |
+| `audio-service/settings` | `settings.toml`: reading it, describing and changing settings by name, and saving it, all from the settings' field tables |
+| `audio-service/pipe` | The service pipe's messages (JSON-RPC 2.0, one per line), read and written with Glaze |
 | `web-ui/` | **The web UI:** a touch-first React app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
@@ -87,11 +89,16 @@ Plug in a MIDI keyboard, then build and start the piano:
 ```powershell
 npm start
 ```
-(The program itself is `.\build\dev\audio-service\app\piano-lab.exe server start`.)
-It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab.log` next to `piano-lab.exe`.
+(The program itself is `.\build\dev\audio-service\app\piano-lab-audio.exe run`.)
+It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
+
+It also takes commands on its input, one JSON line each: that's how piano-lab's web server drives it (arriving in step 0.6). You can type them too. For example, this shows what's open:
+```json
+{"jsonrpc":"2.0","id":1,"method":"status"}
+```
 
 ### Settings
-Your settings live in `settings.toml`, next to `piano-lab.exe`. The first `server start` writes one listing every setting, commented out, with its description, range and built-in value: remove the `#` in front of a setting to change it. For example, to play through an ASIO interface from one keyboard:
+Your settings live in `settings.toml`, next to `piano-lab-audio.exe`. The first run writes one listing every setting, commented out, with its description, range and built-in value: remove the `#` in front of a setting to change it. For example, to play through an ASIO interface from one keyboard:
 ```toml
 [audio]
 type = "ASIO"
@@ -101,14 +108,16 @@ bufferSize = 128
 [midi]
 inputs = ["Digital Piano"]
 ```
-By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano. Restart the server after changing the file.
+By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano.
+
+piano-lab saves settings changed while it runs (from the app, or with a `settings.set` command) back to this file, a second after the last change. So edit the file while piano-lab is stopped. If the file holds anything piano-lab didn't write, such as your own comments, it's first copied to `settings.toml.bak`.
 
 ## Rendering a music file to WAV
 `piano-lab render` plays a MIDI file or MusicXML score (for example, exported from MuseScore) through the piano engine and writes a WAV file, with no audio device:
 ```powershell
 npm run render -- piece.musicxml -o piece.wav
 ```
-File names are relative to the folder you run it from. `.\build\dev\audio-service\app\piano-lab.exe render` does the same without building first.
+File names are relative to the folder you run it from. `.\build\dev\audio-service\app\piano-lab-audio.exe render` does the same without building first.
 See [docs/rendering.md](docs/rendering.md) for what it supports and how AI agents use it.
 
 ## Contributing

@@ -1,6 +1,6 @@
-// piano-lab: the one program. Its subcommands are its roles:
-//   piano-lab render ...      render a music file to WAV, fast and offline
-//   piano-lab server start    run the piano live, driven over the service pipe (stdin/stdout)
+// piano-lab-audio: the audio service's program. Its subcommands are its roles:
+//   piano-lab-audio run           run the piano live, driven over the service pipe (stdin/stdout)
+//   piano-lab-audio render ...    render a music file to WAV, fast and offline
 
 #include <pianolab/live/pipe_io.hpp>
 #include <pianolab/live/server.hpp>
@@ -30,23 +30,24 @@
 namespace {
 
 /// The program's help text.
-constexpr std::string_view usage = R"(usage: piano-lab <command> [options]
+constexpr std::string_view usage = R"(usage: piano-lab-audio <command> [options]
 
-A physically modelled piano.
+The audio service of piano-lab, a physically modelled piano. piano-lab's web server runs it;
+running it yourself is for development and debugging.
 
 commands:
-  render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
-                  render a MIDI or MusicXML file to a WAV file, with no audio device
-  server start    run the piano until Ctrl+C or until its input ends: plays the audio output
+  run             run the piano until Ctrl+C or until its input ends: plays the audio output
                   from the MIDI inputs chosen in settings.toml (by default, the default output
                   from every input), and takes service pipe commands (JSON-RPC 2.0, one per
                   line) on stdin, answering and reporting on stdout
+  render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
+                  render a MIDI or MusicXML file to a WAV file, with no audio device
 
-Settings live in settings.toml, next to piano-lab; 'server start' writes one listing every
+Settings live in settings.toml, next to piano-lab-audio; 'run' writes one listing every
 setting if there isn't one, and saves changes made through the pipe. Logs go to the logs
 folder next to it, recordings to the recordings folder.
 
-Run 'piano-lab render --help' for more on rendering.
+Run 'piano-lab-audio render --help' for more on rendering.
 )";
 
 /// Set when the user asks the server to stop (Ctrl+C). Lock-free, so a signal handler may set it.
@@ -71,7 +72,7 @@ std::filesystem::path settingsFile() {
     return installFolder() / std::string(pianolab::settings::fileName);
 }
 
-/// `piano-lab render <arguments>`: renders a file and returns the exit code: 0 when a WAV was
+/// `piano-lab-audio render <arguments>`: renders a file and returns the exit code: 0 when a WAV was
 /// written (warnings on stderr), 1 when nothing was written.
 int runRender(std::span<const std::string_view> arguments) {
     const auto options = pianolab::render::parseArguments(arguments);
@@ -103,20 +104,20 @@ int runRender(std::span<const std::string_view> arguments) {
     return 0;
 }
 
-/// Where the server's log file goes: `logs/piano-lab.log` in the install folder.
+/// Where the audio service's log file goes: `logs/piano-lab-audio.log` in the install folder.
 std::filesystem::path logFile() {
-    return installFolder() / "logs" / "piano-lab.log";
+    return installFolder() / "logs" / "piano-lab-audio.log";
 }
 
-/// The settings the server starts with, and the settings file's text as read (or written), for
-/// the `.bak` safety net when saving; nothing when the file couldn't be read.
+/// The settings the audio service starts with, and the settings file's text as read (or written),
+/// for the `.bak` safety net when saving; nothing when the file couldn't be read.
 struct StartingSettings {
     pianolab::settings::Settings settings;
     std::optional<std::string> text;
 };
 
-/// The server's settings: `file` merged over the built-ins. When there's no `file`, writes the
-/// starter file there and uses the built-ins. Logs every problem; never fails.
+/// The audio service's settings: `file` merged over the built-ins. When there's no `file`, writes
+/// the starter file there and uses the built-ins. Logs every problem; never fails.
 StartingSettings serverSettings(const std::filesystem::path& file,
                                 const pianolab::logging::Log& log) {
     namespace settings = pianolab::settings;
@@ -155,9 +156,9 @@ StartingSettings serverSettings(const std::filesystem::path& file,
     return {.settings = std::move(loaded->settings), .text = std::move(loaded->text)};
 }
 
-/// `piano-lab server start`: runs the piano until Ctrl+C or until stdin ends. Returns the exit
+/// `piano-lab-audio run`: runs the piano until Ctrl+C or until stdin ends. Returns the exit
 /// code, 0.
-int runServer() {
+int runAudioService() {
     const auto file = logFile();
     auto standard = pianolab::logging::makeStandardLog({.file = file});
     // Everything at info level and above also reaches the web server, as `log` events.
@@ -202,11 +203,11 @@ int run(std::span<const std::string_view> arguments) {
         if (command == "render") {
             return runRender(rest);
         }
-        if (command == "server" && rest.size() == 1 && rest.front() == "start") {
-            return runServer();
+        if (command == "run" && rest.empty()) {
+            return runAudioService();
         }
-        if (command == "server") {
-            std::cerr << "error: 'server' needs an action: 'piano-lab server start'\n\n" << usage;
+        if (command == "run") {
+            std::cerr << "error: 'run' takes no arguments\n\n" << usage;
             return 1;
         }
         std::cerr << std::format("error: unknown command '{}'\n\n", command) << usage;

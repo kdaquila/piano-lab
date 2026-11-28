@@ -235,7 +235,7 @@
   - commands over the WebSocket: notes on and off (on-screen keys), live setting changes (volume and release first)
   - events over the WebSocket: active keys and an output level meter (throttled to about 30 Hz), logs and the engine's diagnostics, and the current settings and state
 - **Saving settings from the app** (auto-save; see Decisions)
-- **The user-facing `piano-lab` command becomes the web server's:** `piano-lab start` (web server and audio service together), `piano-lab stop` and `piano-lab status` (clients of the API), and `piano-lab render` (handed to the audio service binary). The exact command names are settled in the step.
+- **The user-facing `piano-lab` command becomes the web server's:** `piano-lab start` (web server and audio service together), `piano-lab stop` and `piano-lab status` (clients of the API), and `piano-lab render` (handed to the audio service binary). The audio service's own program is **`piano-lab-audio`**, with `run` (replacing `server start`; driven over the service pipe, and stopping when its stdin ends) and `render`.
 - **`docs/web-api.md`:** the public, versioned web API, written for other people's frontends, scripts and AI tools
 - Developer commands: `:web` tasks for the web server and the web API package (`build:web`, `test:web`, `lint:web`, ...) picked up by the plain `run-s` aggregates
 - **The compiler's exploit mitigations** on our C++ (`/guard:cf`, `/CETCOMPAT`), checked by the build

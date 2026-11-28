@@ -1,5 +1,5 @@
 # Rendering: turns a music file (MIDI or MusicXML) into a WAV file with the real engine and no
-# audio device. A library; the `piano-lab render` command (audio-service/app) runs it.
+# audio device. A library; the `piano-lab-audio render` command (audio-service/app) runs it.
 
 add_library(pianolab_render src/render.cpp)
 add_library(pianolab::render ALIAS pianolab_render)
