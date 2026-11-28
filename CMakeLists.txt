@@ -27,6 +27,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Sanitizers)
+include(Hardening)
 include(Warnings)
 include(Dependencies)
 include(Testing)

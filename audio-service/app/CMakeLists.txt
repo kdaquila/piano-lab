@@ -9,3 +9,5 @@ target_link_libraries(pianolab_app PRIVATE
 # The version the audio service reports in its `ready` event.
 target_compile_definitions(pianolab_app PRIVATE PIANOLAB_VERSION="${PROJECT_VERSION}")
 pianolab_set_warnings(pianolab_app)
+# The build checks the compiler's exploit mitigations made it into the program.
+pianolab_check_mitigations(pianolab_app)
