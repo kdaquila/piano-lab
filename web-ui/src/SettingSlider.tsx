@@ -3,11 +3,16 @@
 // follows the finger without flooding piano-lab.
 
 import { Box, Slider, Stack, Typography } from '@mui/material';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePiano, useSender } from './piano.tsx';
 
 /** The shortest time between changes sent while dragging, in milliseconds. */
 export const sendEveryMs = 50;
+/**
+ * How long a released slider keeps showing its new value while piano-lab confirms it, in
+ * milliseconds; if piano-lab refused it, the slider then goes back to the value it has.
+ */
+export const confirmWithinMs = 1_000;
 
 /**
  * Runs the latest of a stream of calls at most every `everyMs`: the first at once, the rest
@@ -74,9 +79,19 @@ export function SettingSlider({ name, label, format, extra }: Props): ReactNode 
     const sender = useSender();
     // While dragging, the slider shows the finger's value, not the last one piano-lab confirmed.
     const [dragging, setDragging] = useState<number | undefined>(undefined);
+    // Once released, it keeps showing that value until piano-lab's value moves on from the one it
+    // had (`from`), so it doesn't snap back for a moment.
+    const [released, setReleased] = useState<{ value: number; from: unknown } | undefined>();
     const [throttle] = useState(() => new Throttle(sendEveryMs));
+    const releaseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-    useEffect(() => () => throttle.cancel(), [throttle]);
+    useEffect(
+        () => () => {
+            throttle.cancel();
+            clearTimeout(releaseTimer.current);
+        },
+        [throttle],
+    );
 
     if (info === undefined || info.kind !== 'number' || typeof current !== 'number') return null;
     const min = info.min ?? 0;
@@ -92,7 +107,9 @@ export function SettingSlider({ name, label, format, extra }: Props): ReactNode 
         log
             ? (Math.log(value / min) / Math.log(max / min)) * 1000
             : ((value - min) / (max - min)) * 1000;
-    const shown = dragging ?? current;
+    const shown =
+        dragging ??
+        (released !== undefined && released.from === current ? released.value : current);
     const describe = format ?? ((value: number) => formatValue(value, info.unit));
 
     return (
@@ -122,8 +139,15 @@ export function SettingSlider({ name, label, format, extra }: Props): ReactNode 
                     throttle.run(() => sender.setSettings({ [name]: value }));
                 }}
                 onChangeCommitted={(_event, position) => {
-                    throttle.now(() => sender.setSettings({ [name]: toValue(position) }));
+                    const value = toValue(position);
+                    throttle.now(() => sender.setSettings({ [name]: value }));
                     setDragging(undefined);
+                    setReleased({ value, from: current });
+                    clearTimeout(releaseTimer.current);
+                    releaseTimer.current = setTimeout(
+                        () => setReleased(undefined),
+                        confirmWithinMs,
+                    );
                 }}
                 sx={{
                     py: 2.5,

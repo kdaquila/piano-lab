@@ -41,7 +41,7 @@ class FakeSocket extends EventTarget {
 }
 
 /** A fetch that answers the schema and devices requests. */
-function fakeFetch(): typeof fetch {
+function fakeFetch() {
     return vi.fn<typeof fetch>(async (url) => {
         const path = String(url);
         const body = path.endsWith('/settings/schema')
@@ -55,6 +55,7 @@ function fakeFetch(): typeof fetch {
 }
 
 let sockets: FakeSocket[] = [];
+let fetched: ReturnType<typeof fakeFetch>;
 let store = createPianoStore();
 let live: Live;
 
@@ -69,7 +70,7 @@ beforeEach(() => {
             sockets.push(socket);
             return socket as unknown as WebSocket;
         },
-        fetch: fakeFetch(),
+        fetch: (fetched = fakeFetch()),
     });
     live.start();
 });
@@ -127,6 +128,44 @@ describe('the link to piano-lab', () => {
         expect(socket?.sent).toEqual([
             { type: 'note.on', key: 60, velocity: 1 },
             { type: 'settings.set', values: { 'sine.gain': 0.3 } },
+        ]);
+    });
+
+    it('reads the devices once per connection, and again when the audio service restarts', async () => {
+        const socket = sockets[0];
+        socket?.open();
+        socket?.receive({ type: 'service', state: 'running' });
+        await vi.waitFor(() => expect(store.getState().devices).toBeDefined());
+        // One read of the schema and one of the devices: opening the link did it.
+        expect(fetched).toHaveBeenCalledTimes(2);
+        socket?.receive({ type: 'service', state: 'restarting' });
+        socket?.receive({ type: 'service', state: 'running' });
+        expect(fetched).toHaveBeenCalledTimes(4);
+    });
+
+    it('keeps the page’s own log lines over a reconnection, while piano-lab resends its own', () => {
+        vi.useFakeTimers();
+        sockets[0]?.open();
+        sockets[0]?.receive({
+            type: 'log',
+            level: 'warning',
+            message: 'no MIDI inputs found',
+            at: 1,
+        });
+        sockets[0]?.receive({ type: 'error', message: 'sine.gain: 7 is out of range' });
+        sockets[0]?.drop();
+        vi.advanceTimersByTime(firstRetryMs);
+        sockets[1]?.open();
+        sockets[1]?.receive({
+            type: 'log',
+            level: 'warning',
+            message: 'no MIDI inputs found',
+            at: 1,
+        });
+        const state = store.getState();
+        expect(state.logIds.map((id) => state.logById[id]?.message)).toEqual([
+            'sine.gain: 7 is out of range',
+            'no MIDI inputs found',
         ]);
     });
 

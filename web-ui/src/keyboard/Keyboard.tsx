@@ -188,7 +188,12 @@ export function Keyboard(): ReactNode {
                 onPointerMove={(event) => move(event.pointerId, keyAt(event))}
                 onPointerUp={(event) => lift(event.pointerId)}
                 onPointerCancel={(event) => lift(event.pointerId)}
-                onLostPointerCapture={(event) => lift(event.pointerId)}
+                // Only the keyboard itself losing a pointer ends its note. Lost-capture events
+                // bubble, so one from a key (a browser may capture a touch to the key under it
+                // before the keyboard takes it over; Edge and Chrome don't) must not stop it.
+                onLostPointerCapture={(event) => {
+                    if (event.target === event.currentTarget) lift(event.pointerId);
+                }}
                 onContextMenu={(event) => event.preventDefault()}
                 sx={{
                     position: 'relative',
@@ -303,8 +308,9 @@ function Overview({
                 capture(event);
                 follow(event);
             }}
+            // Only while pressed: a mouse or a pen just passing over (hovering) doesn't move it.
             onPointerMove={(event) => {
-                if (event.buttons !== 0 || event.pointerType !== 'mouse') follow(event);
+                if (event.buttons !== 0) follow(event);
             }}
             sx={{
                 position: 'relative',

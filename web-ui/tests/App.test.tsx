@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SettingInfo } from '@piano-lab/web-api';
 import { App } from '../src/App.tsx';
 import { PianoProvider, type Sender } from '../src/piano.tsx';
-import { formatValue } from '../src/SettingSlider.tsx';
+import { confirmWithinMs, formatValue } from '../src/SettingSlider.tsx';
 import { createPianoStore } from '../src/store.ts';
 
 const number = (name: string, min: number, max: number, unit = ''): SettingInfo => ({
@@ -66,6 +66,28 @@ describe('the web UI', () => {
 
         fireEvent.keyDown(volume, { key: 'PageUp' });
         expect(sender.setSettings).toHaveBeenLastCalledWith({ 'sine.gain': 0.3 });
+    });
+
+    it('keeps a released slider’s value while piano-lab confirms it, and goes back if it doesn’t', () => {
+        vi.useFakeTimers();
+        try {
+            const { store } = setUp();
+            connect(store);
+            const volume = screen.getByRole('slider', { name: 'Volume' });
+            fireEvent.keyDown(volume, { key: 'PageUp' });
+            // Not confirmed yet: the slider keeps the new value rather than snapping back.
+            expect(volume.getAttribute('aria-valuetext')).toBe('30%');
+            act(() => store.getState().setSettings({ 'sine.gain': 0.3, 'sine.releaseT60': 0.25 }));
+            expect(volume.getAttribute('aria-valuetext')).toBe('30%');
+
+            // A change piano-lab never confirms gives way to the value it has.
+            fireEvent.keyDown(volume, { key: 'PageUp' });
+            expect(volume.getAttribute('aria-valuetext')).toBe('35%');
+            act(() => vi.advanceTimersByTime(confirmWithinMs));
+            expect(volume.getAttribute('aria-valuetext')).toBe('30%');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('shows the latest problem on the status line, and the full log in its panel', () => {

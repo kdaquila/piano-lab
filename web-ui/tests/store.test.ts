@@ -9,8 +9,10 @@ describe('the store', () => {
         store.getState().setConnection('open');
         store.getState().setHeldKeys([60, 64, 67]);
         expect(store.getState().heldKeys).toEqual({ 60: true, 64: true, 67: true });
+        store.getState().setService('running');
         store.getState().setConnection('connecting');
         expect(store.getState().heldKeys).toEqual({});
+        expect(store.getState().service).toBeUndefined();
     });
 
     it('keeps the log by id, dropping the oldest lines past its limit', () => {
@@ -23,6 +25,15 @@ describe('the store', () => {
         expect(Object.keys(logById)).toHaveLength(maxLogEntries);
         expect(logById[logIds[0] ?? 0]?.message).toBe('line 5');
         expect(logById[logIds.at(-1) ?? 0]).toMatchObject({ level: 'info', at: maxLogEntries + 4 });
+    });
+
+    it('drops piano-lab’s own log lines on request, keeping the page’s', () => {
+        const store = createPianoStore();
+        store.getState().addLog('warning', 'no MIDI inputs found', 1, 'piano-lab');
+        store.getState().addLog('error', 'sine.gain: 7 is out of range', 2);
+        store.getState().dropPianoLabLog();
+        const { logIds, logById } = store.getState();
+        expect(logIds.map((id) => logById[id]?.message)).toEqual(['sine.gain: 7 is out of range']);
     });
 
     it('describes settings by name', () => {

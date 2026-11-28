@@ -106,8 +106,8 @@ export class Live {
             this.#retryMs = firstRetryMs;
             const state = this.#store.getState();
             state.setConnection('open');
-            // piano-lab sends its recent log lines first, the ones shown before included.
-            state.clearLog();
+            // piano-lab sends its recent log lines again, the ones shown before included.
+            state.dropPianoLabLog();
             void this.refresh();
         });
         socket.addEventListener('message', (message: MessageEvent) => {
@@ -142,9 +142,16 @@ export class Live {
         }
         switch (value.type) {
             case 'service':
+                // Opening the link read the devices already; a later start (or restart) of the
+                // audio service may have opened others.
+                if (
+                    value.state === 'running' &&
+                    store.service !== undefined &&
+                    store.service !== 'running'
+                ) {
+                    void this.refresh();
+                }
                 store.setService(value.state);
-                // A restarted audio service may have other devices open.
-                if (value.state === 'running') void this.refresh();
                 return;
             case 'settings':
                 store.setSettings(value.values);
@@ -156,7 +163,9 @@ export class Live {
                 store.setLevel(value.peak);
                 return;
             case 'log':
-                if (value.level !== 'debug') store.addLog(value.level, value.message, value.at);
+                if (value.level !== 'debug') {
+                    store.addLog(value.level, value.message, value.at, 'piano-lab');
+                }
                 return;
             case 'error':
                 store.addLog('error', value.message);

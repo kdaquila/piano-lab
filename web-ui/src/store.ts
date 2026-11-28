@@ -15,9 +15,16 @@ import { create } from 'zustand';
 /** The link to piano-lab: connecting (or reconnecting), or open. */
 export type Connection = 'connecting' | 'open';
 
+/**
+ * Where a log line came from: piano-lab's own log, which it sends again to a page that
+ * reconnects, or this page alone (a command piano-lab refused, a message it couldn't read).
+ */
+export type LogSource = 'piano-lab' | 'page';
+
 /** One line of the log panel. */
 export interface LogEntry {
     id: number;
+    source: LogSource;
     /** When it arrived, in milliseconds since 1970. */
     at: number;
     level: Exclude<LogLevel, 'debug'>;
@@ -56,7 +63,9 @@ export interface PianoActions {
     setDevices(devices: Devices): void;
     setHeldKeys(keys: readonly number[]): void;
     setLevel(peak: number): void;
-    addLog(level: LogEntry['level'], message: string, at?: number): void;
+    addLog(level: LogEntry['level'], message: string, at?: number, source?: LogSource): void;
+    /** Drops piano-lab's own lines, which it's about to send again; keeps this page's. */
+    dropPianoLabLog(): void;
     clearLog(): void;
 }
 
@@ -80,8 +89,14 @@ export const initialState: PianoState = {
 export function createPianoStore() {
     return create<PianoStore>()((set) => ({
         ...initialState,
+        // While the link is down nothing about piano-lab is known for sure: it says again on
+        // reconnecting what's held and what the audio service is doing.
         setConnection: (connection) =>
-            set(connection === 'open' ? { connection } : { connection, heldKeys: {}, level: 0 }),
+            set(
+                connection === 'open'
+                    ? { connection }
+                    : { connection, heldKeys: {}, level: 0, service: undefined },
+            ),
         setService: (service) => set({ service }),
         setSettings: (values) => set({ settings: { ...values } }),
         setSchema: (infos) => set({ schema: Object.fromEntries(infos.map((i) => [i.name, i])) }),
@@ -89,7 +104,7 @@ export function createPianoStore() {
         setHeldKeys: (keys) =>
             set({ heldKeys: Object.fromEntries(keys.map((key) => [key, true as const])) }),
         setLevel: (level) => set({ level }),
-        addLog: (level, message, at = Date.now()) =>
+        addLog: (level, message, at = Date.now(), source = 'page') =>
             set((state) => {
                 const id = state.nextLogId;
                 const kept = state.logIds.slice(-(maxLogEntries - 1));
@@ -98,8 +113,18 @@ export function createPianoStore() {
                     const entry = state.logById[old];
                     if (entry !== undefined) logById[old] = entry;
                 }
-                logById[id] = { id, at, level, message };
+                logById[id] = { id, source, at, level, message };
                 return { logIds: [...kept, id], logById, nextLogId: id + 1 };
+            }),
+        dropPianoLabLog: () =>
+            set((state) => {
+                const logIds = state.logIds.filter((id) => state.logById[id]?.source === 'page');
+                const logById: Record<number, LogEntry> = {};
+                for (const id of logIds) {
+                    const entry = state.logById[id];
+                    if (entry !== undefined) logById[id] = entry;
+                }
+                return { logIds, logById };
             }),
         clearLog: () => set({ logIds: [], logById: {} }),
     }));

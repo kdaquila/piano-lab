@@ -75,6 +75,31 @@ describe('the on-screen keyboard', () => {
         expect(sent.at(-1)).toEqual({ type: 'note.off', key: 60 });
     });
 
+    it('keeps a touch sounding when the key under it hands its capture to the keyboard', () => {
+        const { sent, key } = setUp();
+        fireEvent.pointerDown(key(60), touch(1));
+        // A browser that captured the touch to the key first reports the key losing it.
+        fireEvent.lostPointerCapture(key(60), touch(1));
+        expect(sent).toEqual([{ type: 'note.on', key: 60, velocity: touchVelocity }]);
+        // The keyboard itself losing the pointer does end the note.
+        fireEvent.lostPointerCapture(
+            screen.getByRole('group', { name: 'Piano keyboard' }),
+            touch(1),
+        );
+        expect(sent.at(-1)).toEqual({ type: 'note.off', key: 60 });
+    });
+
+    it('moves the view only while the overview strip is pressed, not under a hovering pen', () => {
+        setUp();
+        const strip = screen.getByRole('slider', { name: 'Keyboard position' });
+        strip.getBoundingClientRect = () => new DOMRect(0, 0, 520, 36);
+        const pen = { pointerId: 7, pointerType: 'pen', clientX: 510, clientY: 18 };
+        fireEvent.pointerMove(strip, { ...pen, buttons: 0 });
+        expect(screen.getByText('C3 – C5')).toBeTruthy();
+        fireEvent.pointerMove(strip, { ...pen, buttons: 1 });
+        expect(screen.queryByText('C3 – C5')).toBeNull();
+    });
+
     it('ignores a mouse that passes over without pressing', () => {
         const { sent, key } = setUp();
         fireEvent.pointerMove(key(60), { pointerId: 1, pointerType: 'mouse', buttons: 0 });

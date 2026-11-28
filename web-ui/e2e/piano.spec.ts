@@ -76,6 +76,33 @@ test('a chord played by touch, every finger at once, reaches the piano', async (
     expect(problems).toEqual([]);
 });
 
+test('a held touch keeps sounding while the finger wobbles on its key', async ({ page }) => {
+    const problems = await open(page);
+    const piano = await listen();
+    const c4 = await keyPoint(page, 60);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: c4.x, y: c4.y, id: 0 }],
+    });
+    await expect.poll(() => piano.held.at(-1)).toEqual([60]);
+    // A real finger never stays still: small moves on the same key.
+    for (const dx of [2, -2, 3, -1]) {
+        await cdp.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x: c4.x + dx, y: c4.y + dx, id: 0 }],
+        });
+    }
+    await page.waitForTimeout(300);
+    expect(piano.held.at(-1)).toEqual([60]);
+    await expect(page.locator('[data-key="60"]')).toHaveAttribute('data-lit', 'true');
+
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(() => piano.held.at(-1)).toEqual([]);
+    piano.close();
+    expect(problems).toEqual([]);
+});
+
 test('a note played with the mouse, sliding to the next key', async ({ page }) => {
     const problems = await open(page);
     const piano = await listen();
