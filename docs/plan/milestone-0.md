@@ -20,7 +20,7 @@
 | [0.4](#04-piano-server-core) | Piano server core: audio out + MIDI in through JUCE, the live pipeline, recording machinery, logging | Done ([#6](https://github.com/kdaquila/piano-lab/pull/6)) |
 | [0.5](#05-backend-configuration) | Backend configuration: user settings merged over the built-ins | In progress |
 | [0.6 prelude](#06-prelude-developer-commands-through-npm) | Developer commands through npm: `npm run build`, `npm test`, `npm run check`, ... | Done ([#9](https://github.com/kdaquila/piano-lab/pull/9)) |
-| [0.6](#06-web-server-and-web-api) | Web server and web API: TypeScript web server, audio service behind the service pipe, API v0, settings saving (localhost only) | In review |
+| [0.6](#06-web-server-and-web-api) | Web server and web API: TypeScript web server, audio service behind the service pipe, API v0, settings saving (localhost only) | Done ([#12](https://github.com/kdaquila/piano-lab/pull/12)) |
 | [0.7](#07-web-ui) | Web UI: touch-first, desktop first, served by the web server | Not started |
 | [0.8](#08-threat-model-and-hardening) | Threat model and hardening, before the network opens | Not started |
 | [0.9](#09-network-mode-and-pairing) | Network mode and pairing: opt-in, a paired phone as a remote | Not started |
