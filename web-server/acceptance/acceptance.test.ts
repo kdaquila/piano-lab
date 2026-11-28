@@ -50,7 +50,14 @@ beforeAll(async () => {
         onReady: () =>
             void audio.request('settings.get', {}).then((values) => hub.setSettings(values)),
     });
-    app = await buildServer({ audio, hub, log, version: 'acceptance', onStop: () => {} });
+    app = await buildServer({
+        audio,
+        hub,
+        log,
+        version: 'acceptance',
+        onStop: () => {},
+        webUi: { problem: 'not served here' },
+    });
     await app.listen({ host: 'localhost', port: 0 });
     port = (app.server.address() as AddressInfo).port;
     await audio.start();

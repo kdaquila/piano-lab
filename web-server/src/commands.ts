@@ -18,7 +18,8 @@ piano-lab, a physically modelled piano.
 
 commands:
   start           run piano-lab until Ctrl+C or 'piano-lab stop': plays the piano from your MIDI
-                  keyboard and serves its web API on http://localhost:${defaultPort}
+                  keyboard, serves the web UI and the web API on http://localhost:${defaultPort},
+                  and opens the web UI in your browser
   stop            stop the piano-lab that's running
   status          show what the running piano-lab has open
   render <input> [-o <output.wav>] [--sample-rate <hz>] [--settings <file>]
@@ -144,7 +145,7 @@ export async function runCli(args: readonly string[], port: number = defaultPort
     };
     switch (command) {
         case 'start':
-            return noArguments(() => runWebServer(port));
+            return noArguments(() => runWebServer({ port }));
         case 'stop':
             return noArguments(() => stop(port));
         case 'status':

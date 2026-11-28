@@ -1,8 +1,10 @@
 // The web API end to end: a real web server on a free localhost port, with the stand-in audio
 // service (fake-audio-service.ts) behind it. Covers the routes, the error shape, the browser
-// protections and the WebSocket.
+// protections, the WebSocket and serving the web UI's files.
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
@@ -12,13 +14,23 @@ import type { Event } from '@piano-lab/web-api';
 import { AudioService, AudioServiceError } from '../src/audio-service.ts';
 import { LiveHub } from '../src/live.ts';
 import { describeStatus, runCli } from '../src/commands.ts';
-import { allowedHost, allowedOrigin, buildServer, type Audio } from '../src/server.ts';
+import {
+    allowedHost,
+    allowedOrigin,
+    buildServer,
+    contentSecurityPolicy,
+    type Audio,
+} from '../src/server.ts';
 
 const log = { info: () => {}, warn: () => {}, error: () => {} };
 let app: FastifyInstance;
 let audio: AudioService;
 let port = 0;
 let stops = 0;
+/** A stand-in for the built web UI. */
+const webUi = mkdtempSync(join(tmpdir(), 'piano-lab-web-ui-'));
+writeFileSync(join(webUi, 'index.html'), '<!doctype html><title>piano-lab</title>');
+writeFileSync(join(webUi, 'app.js'), 'console.log(1);');
 
 beforeAll(async () => {
     const hub = new LiveHub();
@@ -33,7 +45,14 @@ beforeAll(async () => {
         onReady: () =>
             void audio.request('settings.get', {}).then((values) => hub.setSettings(values)),
     });
-    app = await buildServer({ audio, hub, log, version: '9.9.9', onStop: () => (stops += 1) });
+    app = await buildServer({
+        audio,
+        hub,
+        log,
+        version: '9.9.9',
+        onStop: () => (stops += 1),
+        webUi: { folder: webUi },
+    });
     await app.listen({ host: '127.0.0.1', port: 0 });
     port = (app.server.address() as AddressInfo).port;
     await audio.start();
@@ -42,6 +61,7 @@ beforeAll(async () => {
 afterAll(async () => {
     await audio.stop();
     await app.close();
+    rmSync(webUi, { recursive: true, force: true });
 });
 
 /** A reply: its status and its body, parsed as JSON. */
@@ -261,11 +281,43 @@ describe('the requests', () => {
             log,
             version: '9.9.9',
             onStop: () => {},
+            webUi: { problem: "the web UI isn't built" },
         });
         const reply = await other.inject({ method: 'GET', url: '/api/v0/status' });
-        await other.close();
         expect(reply.statusCode).toBe(200);
         expect(reply.json()).toEqual({ version: '9.9.9', audioService: 'running', audio: null });
+        const page = await other.inject({ method: 'GET', url: '/' });
+        await other.close();
+        expect(page.statusCode).toBe(404);
+        expect(page.json()).toMatchObject({
+            error: { message: expect.stringContaining("isn't built") },
+        });
+    });
+});
+
+describe('the web UI', () => {
+    it('is served at /, with the page protections', async () => {
+        const page = await fetch(`http://localhost:${port}/`);
+        expect(page.status).toBe(200);
+        expect(await page.text()).toContain('<title>piano-lab</title>');
+        expect(page.headers.get('content-security-policy')).toBe(contentSecurityPolicy);
+        expect(page.headers.get('x-content-type-options')).toBe('nosniff');
+
+        const script = await fetch(`http://localhost:${port}/app.js`);
+        expect(script.status).toBe(200);
+        expect(script.headers.get('content-type')).toContain('javascript');
+    });
+
+    it('is refused when addressed to another host name', async () => {
+        const reply = await call('GET', '/', { headers: { host: 'evil.example' } });
+        expect(reply.status).toBe(403);
+    });
+
+    it('leaves unknown paths to the API’s error shape', async () => {
+        expect(await call('GET', '/nothing.js')).toMatchObject({
+            status: 404,
+            body: { error: { code: 'not-found' } },
+        });
     });
 });
 
@@ -279,6 +331,14 @@ describe('the WebSocket', () => {
             values: { 'sine.gain': expect.any(Number) },
         });
         expect(events[2]).toEqual({ type: 'keys', keys: [] });
+        // Then the recent log lines, so it hears about problems from before it connected.
+        await until(() => events.some((e) => e.type === 'log'));
+        expect(events.find((e) => e.type === 'log')).toEqual({
+            type: 'log',
+            level: 'info',
+            message: 'starting',
+            at: expect.any(Number),
+        });
         socket.close();
     });
 

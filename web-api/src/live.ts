@@ -55,11 +55,16 @@ export const LevelEvent = Type.Object({
     peak: Type.Number(),
 });
 
-/** A line from piano-lab's log (from `info` up). */
+/**
+ * A line from piano-lab's log (from `info` up). A client that connects is sent the recent lines
+ * first, so it hears about problems from before it connected (e.g. a device that didn't open).
+ */
 export const LogEvent = Type.Object({
     type: Type.Literal('log'),
     level: LogLevel,
     message: Type.String(),
+    /** When it was logged, in milliseconds since 1970 (UTC). */
+    at: Type.Number(),
 });
 
 /** Every setting's value: after any change, from any client, or when a client connects. */

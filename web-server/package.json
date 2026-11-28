@@ -9,6 +9,7 @@
         "piano-lab": "bin/piano-lab.js"
     },
     "dependencies": {
+        "@fastify/static": "11.0.0",
         "@fastify/type-provider-typebox": "6.3.0",
         "@fastify/websocket": "11.3.7",
         "@piano-lab/web-api": "0.1.0",
