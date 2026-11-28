@@ -31,6 +31,15 @@ A piece of living-room furniture that looks like an upright piano. Inside it are
 - **Finish:** walnut or polished black.
 - **On the shelf:** nothing, a phone, a tablet or sheet music. The phone and tablet show a mock-up of a piano plugin screen.
 
+### Parametric: every dimension is a slider
+The model is built entirely from named parameters, so it can be tweaked without touching the code. The way of working: Claude builds the geometry from reference photos or descriptions, and the owner fine-tunes it with the sliders.
+- **Dimensions panel** (top right): every design dimension in centimetres or degrees, in folders by part (cabinet, lid, upper section, cheek blocks, pedals, gear, ...). Moving a slider rebuilds the model at once. Changed values are highlighted, and double-clicking a value's name puts it back to its default.
+- **What has no slider:** derived dimensions, which follow from the others (the upper section's height, for example, comes from the overall height and the music shelf height), and cosmetic numbers such as edge rounding and bevels.
+- **Report** (left): the derived dimensions, read-only, and **checks** that turn the design rules into margins, such as "sheet music clears the lid by at least 3 cm". A failing check turns red.
+- **Values:** *Copy changed values* puts the changed values on the clipboard as JSON, to paste into a chat or an issue. *Paste values* loads a set back (anything not in it returns to its default), and *Reset to defaults* starts over. Tweaks are also kept in the browser across reloads, unless a new version of the file changes that value's default.
+
+The defaults in the file are the current design. To adopt a set of tweaks, paste the changed values to Claude, who commits them as the new defaults.
+
 To open it, open the file in a browser. If your browser blocks it when opened as a local file, serve the `docs/hardware` folder with any static file server and open the page from there.
 
 It loads **three.js 0.170.0** from the jsDelivr CDN, pinned to that exact version, so it needs an internet connection. It's a design sketch, not part of piano-lab: nothing builds or tests it.

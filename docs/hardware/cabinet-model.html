@@ -7,7 +7,18 @@
   html, body { margin: 0; height: 100%; background: #c9ccd1; overflow: hidden; font-family: system-ui, sans-serif; }
   #ui { position: fixed; left: 12px; top: 10px; background: rgba(255,255,255,.75); padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #222; }
   #ui label { display: block; margin: 2px 0; cursor: pointer; }
+  #report { position: fixed; left: 12px; top: 128px; max-height: calc(100% - 170px); overflow: auto; background: rgba(255,255,255,.75); padding: 6px 12px 8px; border-radius: 6px; font-size: 12px; color: #222; }
+  #report h4 { margin: 6px 0 2px; font-size: 12px; }
+  #report table { border-collapse: collapse; }
+  #report td { padding: 1px 0; }
+  #report td.v { text-align: right; padding-left: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #report .bad td { color: #b3121b; font-weight: 600; }
+  #report .want { opacity: .6; padding-left: 8px; white-space: nowrap; }
   #hint { position: fixed; left: 12px; bottom: 10px; color: #333; font-size: 12px; opacity: .7; }
+  #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #222; color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  /* lil-gui: values that differ from the committed defaults are highlighted. */
+  .lil-gui .controller.changed .name { color: #f0b450; }
+  .lil-gui { --width: 320px; --name-width: 55%; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -35,12 +46,162 @@
     </select>
   </label>
 </div>
-<div id="hint">Drag to orbit · scroll to zoom · right-drag to pan · component sizes are rough placeholders</div>
+<div id="report"></div>
+<div id="hint">Drag to orbit · scroll to zoom · right-drag to pan · gear sizes are rough placeholders</div>
+<div id="toast"></div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import GUI from 'three/addons/libs/lil-gui.module.min.js';
+
+// ---------- Parameters ----------
+// Every design dimension of the model, in centimetres or degrees. Each one gets a slider.
+// Derived dimensions (computed from these) are not parameters: they show read-only in the report.
+// Cosmetic numbers (edge rounding, bevels) are fixed in the code.
+// [folder, key, label, default, min, max, step, unit]
+const SCHEMA = [
+  ['Cabinet', 'width', 'Width', 156, 120, 200, 0.1, 'cm'],
+  ['Cabinet', 'height', 'Height (to under the lid)', 120, 100, 150, 0.1, 'cm'],
+  ['Cabinet', 'depth', 'Depth (back to front face)', 36, 25, 60, 0.1, 'cm'],
+  ['Cabinet', 'sideThickness', 'Side panel thickness', 5, 1.5, 10, 0.1, 'cm'],
+  ['Cabinet', 'floorClearance', 'Floor clearance', 2, 0, 10, 0.1, 'cm'],
+  ['Cabinet', 'plinthThickness', 'Plinth thickness', 4, 1, 10, 0.1, 'cm'],
+  ['Cabinet', 'wallGap', 'Gap to the wall', 6, 0, 20, 0.1, 'cm'],
+
+  ['Lid', 'lidThickness', 'Thickness', 3, 1, 6, 0.1, 'cm'],
+  ['Lid', 'lidOverhangSide', 'Overhang at the sides', 1.5, 0, 5, 0.1, 'cm'],
+  ['Lid', 'lidOverhangFront', 'Overhang at the front', 2.5, 0, 6, 0.1, 'cm'],
+  ['Lid', 'lidOverhangBack', 'Overhang at the back', 1, 0, 5, 0.1, 'cm'],
+
+  ['Back frame', 'backPostSpacing', 'Post spacing (centre to centre)', 84, 20, 180, 0.1, 'cm'],
+  ['Back frame', 'backPostWidth', 'Post width', 8, 2, 15, 0.1, 'cm'],
+  ['Back frame', 'backFrameDepth', 'Frame depth', 4, 1, 10, 0.1, 'cm'],
+  ['Back frame', 'backRailHeight', 'Cross rail height (bottom)', 60, 10, 110, 0.1, 'cm'],
+  ['Back frame', 'backRailThickness', 'Cross rail thickness', 6, 2, 15, 0.1, 'cm'],
+
+  ['Upper section', 'shelfHeight', 'Music shelf height (top)', 89, 75, 110, 0.1, 'cm'],
+  ['Upper section', 'slant', 'Upper panel lean-back', 12, 0, 25, 0.5, '°'],
+  ['Upper section', 'upperPanelThickness', 'Upper panel thickness', 2, 0.5, 5, 0.1, 'cm'],
+  ['Upper section', 'electronicsShelfThickness', 'Electronics shelf thickness', 2, 0.5, 5, 0.1, 'cm'],
+  ['Upper section', 'frontFrameDepth', 'Front frame depth (rails, boards)', 3, 1, 8, 0.1, 'cm'],
+  ['Upper section', 'gearSetback', 'Electronics setback from the front', 6.5, 0, 20, 0.1, 'cm'],
+
+  ['Fallboard and music shelf', 'fallboardKeyGap', 'Gap above the black keys', 1.5, 0.3, 5, 0.1, 'cm'],
+  ['Fallboard and music shelf', 'fallboardOverhang', 'Overhang over the key backs', 1.2, 0, 5, 0.1, 'cm'],
+  ['Fallboard and music shelf', 'musicShelfThickness', 'Music shelf thickness', 1.6, 0.5, 4, 0.1, 'cm'],
+  ['Fallboard and music shelf', 'musicShelfLip', 'Music shelf lip past the fallboard', 1.2, 0, 5, 0.1, 'cm'],
+
+  ['Keyboard shelf and cheek blocks', 'cheekReach', 'Cheek block reach (from cabinet front)', 32, 20, 50, 0.1, 'cm'],
+  ['Keyboard shelf and cheek blocks', 'cheekWidth', 'Cheek block width', 5, 2, 12, 0.1, 'cm'],
+  ['Keyboard shelf and cheek blocks', 'cheekRise', 'Cheek front height above the keys', 3.5, 0, 10, 0.1, 'cm'],
+  ['Keyboard shelf and cheek blocks', 'cheekFlatSetback', 'Flat top ends behind the music shelf front', 6, 0, 20, 0.1, 'cm'],
+  ['Keyboard shelf and cheek blocks', 'keyboardShelfThickness', 'Keyboard shelf thickness', 3, 1, 6, 0.1, 'cm'],
+  ['Keyboard shelf and cheek blocks', 'keyboardShelfSetback', 'Keyboard shelf setback (behind cheek front)', 2, 0, 10, 0.1, 'cm'],
+
+  ['Legs and casters', 'legDepth', 'Leg depth', 6, 2, 15, 0.1, 'cm'],
+  ['Legs and casters', 'legSetback', 'Leg setback (behind cheek front)', 1, 0, 10, 0.1, 'cm'],
+  ['Legs and casters', 'legInset', 'Leg inset (each side of the cheek)', 0.3, 0, 2, 0.1, 'cm'],
+  ['Legs and casters', 'toeHeight', 'Toe block height', 6, 2, 15, 0.1, 'cm'],
+  ['Legs and casters', 'toeOverhang', 'Toe block overhang (each side)', 0.4, 0, 3, 0.1, 'cm'],
+  ['Legs and casters', 'casterDiameter', 'Caster diameter', 4, 2, 8, 0.1, 'cm'],
+  ['Legs and casters', 'casterInsetSide', 'Caster inset from the sides', 4, 1, 15, 0.1, 'cm'],
+  ['Legs and casters', 'casterInsetFront', 'Front caster inset (behind cheek front)', 3, 1, 15, 0.1, 'cm'],
+  ['Legs and casters', 'casterInsetBack', 'Back caster inset (from the back)', 4, 1, 15, 0.1, 'cm'],
+
+  ['Knee board', 'kneeRailHeight', 'Rail height (top and bottom)', 3.5, 1, 10, 0.1, 'cm'],
+  ['Knee board', 'kneeZoneWidth', 'Knee zone width (between the speakers)', 72, 40, 110, 0.1, 'cm'],
+  ['Knee board', 'pedalPanelWidth', 'Wooden pedal panel width', 20, 5, 50, 0.1, 'cm'],
+  ['Knee board', 'fabricInset', 'Fabric inset (behind the front)', 1.5, 0, 3, 0.1, 'cm'],
+  ['Knee board', 'fabricThickness', 'Fabric panel thickness', 1, 0.2, 2, 0.1, 'cm'],
+
+  ['Pedals', 'pedalSpacing', 'Spacing (centre to centre)', 7, 4, 12, 0.1, 'cm'],
+  ['Pedals', 'pedalHeight', 'Height above the floor', 4.8, 2, 12, 0.1, 'cm'],
+  ['Pedals', 'pedalSetback', 'Lever start (behind the front)', 1.5, 0, 5, 0.1, 'cm'],
+  ['Pedals', 'pedalTilt', 'Tilt (pad up)', 4.6, 0, 15, 0.1, '°'],
+  ['Pedals', 'pedalLength', 'Length', 12.5, 8, 20, 0.1, 'cm'],
+  ['Pedals', 'pedalLeverLength', 'Straight lever length', 5, 2, 10, 0.1, 'cm'],
+  ['Pedals', 'pedalLeverWidth', 'Lever width', 1.6, 0.8, 3, 0.1, 'cm'],
+  ['Pedals', 'pedalPadWidth', 'Foot pad width', 3.8, 2, 6, 0.1, 'cm'],
+  ['Pedals', 'pedalThickness', 'Thickness', 0.8, 0.3, 2, 0.1, 'cm'],
+  ['Pedals', 'pedalSlotWidth', 'Slot width', 20, 10, 40, 0.1, 'cm'],
+  ['Pedals', 'pedalSlotHeight', 'Slot height', 2.5, 1, 6, 0.1, 'cm'],
+
+  ['Keyboard (controller)', 'keyTop', 'Key top height', 74, 65, 85, 0.1, 'cm'],
+  ['Keyboard (controller)', 'keyboardHeight', 'Height (shelf to key tops)', 8, 4, 15, 0.1, 'cm'],
+  ['Keyboard (controller)', 'controllerWidth', 'Body width', 132, 120, 145, 0.1, 'cm'],
+  ['Keyboard (controller)', 'controllerDepth', 'Body depth', 34, 20, 45, 0.1, 'cm'],
+  ['Keyboard (controller)', 'keyRangeWidth', 'Width of the 88 keys', 122, 115, 130, 0.1, 'cm'],
+  ['Keyboard (controller)', 'keySetback', 'Key fronts behind the cheek front', 7, 0, 20, 0.1, 'cm'],
+  ['Keyboard (controller)', 'whiteKeyLength', 'White key length', 15, 10, 18, 0.1, 'cm'],
+  ['Keyboard (controller)', 'whiteKeyHeight', 'White key height', 2.2, 1, 3, 0.1, 'cm'],
+  ['Keyboard (controller)', 'blackKeyLength', 'Black key length', 9.5, 6, 12, 0.1, 'cm'],
+  ['Keyboard (controller)', 'blackKeyRise', 'Black keys above the white keys', 1.2, 0.5, 2, 0.1, 'cm'],
+  ['Keyboard (controller)', 'controllerBackRise', 'Back section above the white keys', 0.3, 0, 5, 0.1, 'cm'],
+
+  ['Speakers', 'speakerWidth', 'Width', 19, 10, 30, 0.1, 'cm'],
+  ['Speakers', 'speakerHeight', 'Height', 29, 15, 45, 0.1, 'cm'],
+  ['Speakers', 'speakerDepth', 'Depth', 22, 10, 35, 0.1, 'cm'],
+  ['Speakers', 'speakerTilt', 'Tilt (face up)', 6.9, 0, 20, 0.1, '°'],
+  ['Speakers', 'speakerSetback', 'Face behind the cabinet front', 4, 1, 15, 0.1, 'cm'],
+  ['Speakers', 'speakerLift', 'Lift above the plinth', 3, 0, 20, 0.1, 'cm'],
+  ['Speakers', 'wooferDiameter', 'Woofer diameter', 13, 5, 20, 0.1, 'cm'],
+  ['Speakers', 'wooferHeight', 'Woofer centre height (on the face)', 10, 5, 30, 0.1, 'cm'],
+  ['Speakers', 'tweeterDiameter', 'Tweeter diameter', 3.6, 1, 6, 0.1, 'cm'],
+  ['Speakers', 'tweeterHeight', 'Tweeter centre height (on the face)', 22, 10, 40, 0.1, 'cm'],
+
+  ['Electronics', 'pcLeft', 'PC left edge (from the centre)', -62, -75, 40, 0.1, 'cm'],
+  ['Electronics', 'pcWidth', 'PC width', 35.6, 15, 50, 0.1, 'cm'],
+  ['Electronics', 'pcHeight', 'PC height', 7.6, 3, 20, 0.1, 'cm'],
+  ['Electronics', 'pcDepth', 'PC depth', 25.4, 10, 35, 0.1, 'cm'],
+  ['Electronics', 'pcFrontGap', 'PC set back from the line', 0, 0, 10, 0.1, 'cm'],
+  ['Electronics', 'ampLeft', 'Amp left edge (from the centre)', 5, -75, 70, 0.1, 'cm'],
+  ['Electronics', 'ampWidth', 'Amp width', 13, 5, 30, 0.1, 'cm'],
+  ['Electronics', 'ampHeight', 'Amp height', 4, 1, 15, 0.1, 'cm'],
+  ['Electronics', 'ampDepth', 'Amp depth', 13, 5, 30, 0.1, 'cm'],
+  ['Electronics', 'ampFrontGap', 'Amp set back from the line', 1, 0, 10, 0.1, 'cm'],
+  ['Electronics', 'interfaceLeft', 'Interface left edge (from the centre)', 25, -75, 70, 0.1, 'cm'],
+  ['Electronics', 'interfaceWidth', 'Interface width', 18, 5, 30, 0.1, 'cm'],
+  ['Electronics', 'interfaceHeight', 'Interface height', 4.5, 1, 15, 0.1, 'cm'],
+  ['Electronics', 'interfaceDepth', 'Interface depth', 10, 5, 30, 0.1, 'cm'],
+  ['Electronics', 'interfaceFrontGap', 'Interface set back from the line', 2, 0, 10, 0.1, 'cm'],
+
+  ['On the shelf', 'phoneWidth', 'Phone width', 7.4, 5, 10, 0.1, 'cm'],
+  ['On the shelf', 'phoneHeight', 'Phone height', 16, 10, 20, 0.1, 'cm'],
+  ['On the shelf', 'tabletWidth', 'Tablet width (landscape)', 25, 15, 35, 0.1, 'cm'],
+  ['On the shelf', 'tabletHeight', 'Tablet height (landscape)', 17.8, 10, 25, 0.1, 'cm'],
+  ['On the shelf', 'pageWidth', 'Sheet music page width', 21.5, 15, 30, 0.1, 'cm'],
+  ['On the shelf', 'pageHeight', 'Sheet music page height', 28, 20, 35, 0.1, 'cm'],
+];
+const DEFAULTS = Object.fromEntries(SCHEMA.map(s => [s[1], s[3]]));
+const STORE_KEY = 'piano-cabinet-params';
+
+// Values persist across reloads, but only while the committed default they were tweaked from
+// is unchanged: when a new version of this file changes a default, the new default wins.
+function loadParams() {
+  const params = { ...DEFAULTS };
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORE_KEY));
+    for (const [k, v] of Object.entries(stored?.values ?? {})) {
+      if (k in DEFAULTS && typeof v === 'number' && stored.defaults?.[k] === DEFAULTS[k]) params[k] = v;
+    }
+  } catch { /* nothing stored, or unreadable: start from the defaults */ }
+  return params;
+}
+function saveParams() {
+  localStorage.setItem(STORE_KEY, JSON.stringify({ values: params, defaults: DEFAULTS }));
+}
+const params = loadParams();
+
+// Converts the slider values (cm, degrees) to the units the geometry uses (metres, radians).
+function toModelUnits(p) {
+  const out = {};
+  for (const [, key, , , , , , unit] of SCHEMA) {
+    out[key] = unit === '°' ? THREE.MathUtils.degToRad(p[key]) : p[key] / 100;
+  }
+  return out;
+}
 
 // ---------- Scene setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -141,94 +302,6 @@ function disc(material, r, depth, [x, y, z], parent) {
   return m;
 }
 
-// ---------- Dimensions ----------
-// Axes: x = width (bass on the left), y = up, z = towards the player.
-const W = 1.56;           // cabinet width (wide enough for a range of 88-key boards)
-const H = 0.89 + 0.31;    // cabinet height: upper section above the shelf (0.89 m) is 31 cm, so open sheet music (28 cm pages, leaning 12°) clears the lid by ~3.5 cm
-const BACK = -0.32;       // back edge of the cabinet (open back)
-const FRONT = 0.04;       // front face of the upper/lower cabinet
-const SIDE = 0.05;        // side panel thickness
-const IN = W / 2 - SIDE;  // inner half-width
-const KEY_Y = 0.74;       // top of the white keys
-const SHELF_TOP = KEY_Y - 0.08; // top of the keyboard shelf (keyboard is ~8 cm tall to the key tops)
-const ARM_W = 0.05;       // cheek block width (same as the side panels, so they read as one piece)
-const ARM_FRONT = 0.36;   // front of the cheek blocks / legs (keyboard section sticks out further -> deeper phone shelf)
-const WALL_GAP = 0.06;    // fixed spacer gap to the wall
-
-const piano = new THREE.Group();
-piano.name = 'piano';
-scene.add(piano);
-
-// ---------- Wall (single-sided: invisible when orbiting behind it) ----------
-const wall = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), mat.wall);
-wall.position.set(0, 1.5, BACK - WALL_GAP);
-wall.receiveShadow = true;
-scene.add(wall);
-
-// ---------- Cabinet ----------
-const cabinet = new THREE.Group(); cabinet.name = 'cabinet'; piano.add(cabinet);
-
-// The upper front leans back by SLANT, starting where the fallboard ends.
-const UP_Y0 = 0.89;                               // bottom of the slanted upper front (= top of the fallboard shelf)
-const SLANT = THREE.MathUtils.degToRad(12);       // θ, lean-back angle of the upper front
-const TOP_Z = FRONT - (H - UP_Y0) * Math.tan(SLANT); // front edge at the top
-
-// Side panels: a side profile (vertical below UP_Y0, slanted above) extruded through the panel thickness.
-function sidePanel(name, xOuterToInner) {
-  const s = new THREE.Shape();           // shape coords: (u = z, v = y)
-  s.moveTo(BACK, 0.02);
-  s.lineTo(FRONT, 0.02);
-  s.lineTo(FRONT, UP_Y0);
-  s.lineTo(TOP_Z, H);
-  s.lineTo(BACK, H);
-  s.closePath();
-  // Small bevel (3 mm) = rounded edges; inset the depth so the panel stays SIDE thick overall.
-  const BEV = 0.003;
-  const m = new THREE.Mesh(new THREE.ExtrudeGeometry(s, {
-    depth: SIDE - 2 * BEV, bevelEnabled: true, bevelThickness: BEV, bevelSize: BEV, bevelOffset: -BEV, bevelSegments: 2,
-  }), mat.wood);
-  m.geometry.translate(0, 0, BEV);
-  m.rotation.y = -Math.PI / 2;           // shape u -> world z, extrusion -> world -x
-  m.position.x = xOuterToInner;          // panel spans [x - SIDE, x]
-  m.name = name;
-  m.castShadow = m.receiveShadow = true;
-  cabinet.add(m);
-}
-sidePanel('side-left', -IN);
-sidePanel('side-right', W / 2);
-// Top lid (slight overhang past the slanted front)
-box('lid', mat.wood, [-W/2 - 0.015, H, BACK - 0.01], [W/2 + 0.015, H + 0.03, TOP_Z + 0.025], cabinet);
-// Plinth (floor of the lower cabinet)
-box('plinth', mat.woodDark, [-IN, 0.02, BACK], [IN, 0.06, FRONT], cabinet);
-
-// Open back: just two posts and a cross rail for stiffness, like a real upright's back frame.
-for (const x of [-0.42, 0.42]) box(`back-post-${x < 0 ? 'l' : 'r'}`, mat.woodDark, [x - 0.04, 0.06, BACK], [x + 0.04, H, BACK + 0.04], cabinet);
-box('back-rail', mat.woodDark, [-IN, 0.60, BACK], [IN, 0.66, BACK + 0.04], cabinet);
-
-// --- Upper front: one seamless panel, leaning back by SLANT ---
-// Lift-off access like a real upright: held by hidden clips or magnets, no hinges, no seam.
-const RAIL = 0.035, CENTRE = 0.36;
-const upper = new THREE.Group(); upper.name = 'upper-panel';
-upper.position.set(0, UP_Y0, FRONT - 0.002);
-upper.rotation.x = -SLANT; // top leans back
-cabinet.add(upper);
-const PANEL_L = (H - UP_Y0) / Math.cos(SLANT);
-box('upper-panel', skin.wood, [-IN, 0, -0.02], [IN, PANEL_L, 0], upper);
-// Inner shelf the electronics sit on, just above the fallboard.
-const E = UP_Y0 + 0.02; // shelf top
-box('electronics-shelf', mat.woodDark, [-IN, UP_Y0, BACK], [IN, E, FRONT - 0.03], cabinet);
-
-// --- Fallboard: a vertical board behind the keys with a flat shelf on top (Boston-style) ---
-// It hides the keyboard's back panel, and its top shelf is the one ledge for music and phone.
-const FALL_FRONT = (ARM_FRONT - 0.07) - 0.15 + 0.012; // key front - white key length: overhangs the back ends of the keys
-const SHELF_T = 0.016;                         // shelf board thickness
-const FALL_BOTTOM = KEY_Y + 0.012 + 0.015;     // 1.5 cm above the black-key tops: clears them and leaves room to slide the keyboard in and out
-// Runs only between the cheek blocks, so its ends don't poke through their curved tops.
-const FALL_X = IN - ARM_W + SIDE;              // inner face of the cheek blocks
-box('fallboard', mat.wood, [-FALL_X, FALL_BOTTOM, FRONT - 0.03], [FALL_X, UP_Y0 - SHELF_T, FALL_FRONT], cabinet);
-const SHELF_FRONT = FALL_FRONT + 0.012;        // front edge of the phone/music shelf
-box('fallboard-shelf', mat.wood, [-FALL_X, UP_Y0 - SHELF_T, FRONT - 0.03], [FALL_X, UP_Y0, SHELF_FRONT], cabinet);
-
 // --- A generic piano-plugin control screen (piano-lab style), drawn on a canvas ---
 // Header with name + preset, a grid of knobs with value arcs, a level meter and a mini keyboard.
 function pluginScreenTexture(W, H, cols, rows) {
@@ -298,23 +371,7 @@ function screenMaterial(tex) {
     roughness: 0.05, clearcoat: 1.0, clearcoatRoughness: 0.02,
   });
 }
-// Builds a device (phone or tablet) standing on the shelf, leaning back on the slanted panel.
-function device(name, w, h, bezel, tex) {
-  const d = new THREE.Group(); d.name = name;
-  d.position.set(0, UP_Y0, FRONT + 0.004);
-  d.rotation.x = -SLANT;
-  cabinet.add(d);
-  box(`${name}-body`, mat.phone, [-w / 2, 0, 0], [w / 2, h, 0.008], d);
-  box(`${name}-screen`, screenMaterial(tex), [-w / 2 + bezel, bezel, 0.008], [w / 2 - bezel, h - bezel, 0.0085], d);
-  return d;
-}
-
-// Phone (portrait) and tablet (landscape, ~11"), each showing the plugin screen.
-const phone  = device('phone', 0.074, 0.16, 0.003, pluginScreenTexture(400, 880, 2, 4));
-const tablet = device('tablet', 0.25, 0.178, 0.008, pluginScreenTexture(1200, 840, 4, 2));
-
-// Sheet music: an open book (two ~A4 pages) standing on the shelf, leaning on the panel.
-// Pages are drawn on a canvas: staves plus some note heads, so it reads as music from a distance.
+// Sheet music pages: staves plus some note heads, so it reads as music from a distance.
 function musicPageTexture(seed) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 680;
   const g = c.getContext('2d');
@@ -336,191 +393,419 @@ function musicPageTexture(seed) {
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
-const music = new THREE.Group(); music.name = 'sheet-music';
-music.position.set(0, UP_Y0, FRONT + 0.004);
-music.rotation.x = -SLANT;
-cabinet.add(music);
-const PAGE = { w: 0.215, h: 0.28 };
-for (const [s, seed] of [[-1, 12345], [1, 67890]]) {
-  // Each page hinges at the spine (x = 0) and opens slightly towards the player.
-  const hinge = new THREE.Group();
-  hinge.rotation.y = s * -0.12;
-  music.add(hinge);
-  const pageMat = new THREE.MeshStandardMaterial({ map: musicPageTexture(seed), roughness: 0.9 });
-  const page = new THREE.Mesh(new THREE.BoxGeometry(PAGE.w, PAGE.h, 0.003), [
-    mat.whiteKey, mat.whiteKey, mat.whiteKey, mat.whiteKey, pageMat, mat.whiteKey, // +z face shows the music
-  ]);
-  page.position.set(s * PAGE.w / 2, PAGE.h / 2, 0.003);
-  page.castShadow = true;
-  hinge.add(page);
-}
+// Textures and their materials are drawn once; only geometry is rebuilt when a slider moves.
+const phoneScreenMat = screenMaterial(pluginScreenTexture(400, 880, 2, 4));
+const tabletScreenMat = screenMaterial(pluginScreenTexture(1200, 840, 4, 2));
+const pageMats = [12345, 67890].map(seed => new THREE.MeshStandardMaterial({ map: musicPageTexture(seed), roughness: 0.9 }));
 
-// Shelf switch: nothing | phone | tablet | sheet music
-const shelfSel = document.getElementById('shelf');
-function applyShelf(v) { phone.visible = v === 'phone'; tablet.visible = v === 'tablet'; music.visible = v === 'music'; }
-shelfSel.addEventListener('change', () => applyShelf(shelfSel.value));
-applyShelf(shelfSel.value);
+// ---------- Wall (single-sided: invisible when orbiting behind it) ----------
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), mat.wall);
+wall.position.y = 1.5;
+wall.receiveShadow = true;
+scene.add(wall);
 
-// --- Keyboard shelf and cheek blocks ---
-box('keyboard-shelf', mat.wood, [-IN, SHELF_TOP - 0.03, BACK + 0.04], [IN, SHELF_TOP, ARM_FRONT - 0.02], cabinet);
-// Curved cheek blocks: low at the front, sweeping up in a concave curve to the cabinet
-// (inspired by the Boston upright). Side profile extruded across the block's width.
-const ARM_LOW = KEY_Y + 0.035, ARM_HIGH = UP_Y0; // flat top is flush with the top of the shelf
-const armShape = new THREE.Shape();    // shape coords: (u = z, v = y)
-armShape.moveTo(FRONT, SHELF_TOP - 0.03);
-armShape.lineTo(ARM_FRONT, SHELF_TOP - 0.03);
-armShape.lineTo(ARM_FRONT, ARM_LOW);
-// Flat top over roughly the back half, then a gentle curve down to the low front.
-const ARM_DZ = ARM_FRONT - FRONT, ARM_DY = ARM_HIGH - ARM_LOW;
-const ARM_FLAT_Z = SHELF_FRONT - 0.06;      // flat top ends 6 cm behind the shelf's front edge, so the shelf protrudes past the cheek
-const DROP = ARM_FRONT - ARM_FLAT_Z;
-armShape.bezierCurveTo(
-  ARM_FRONT - 0.35 * DROP, ARM_LOW,          // leave the front heading back, nearly level
-  ARM_FLAT_Z + 0.15 * DROP, ARM_HIGH - 0.45 * ARM_DY, // rise fairly steeply near the shoulder
-  ARM_FLAT_Z, ARM_HIGH
-);
-armShape.lineTo(FRONT, ARM_HIGH);            // flat top back to the cabinet
-armShape.closePath();
-for (const [s, n] of [[-1, 'left'], [1, 'right']]) {
-  const x0 = s < 0 ? -W/2 : IN - ARM_W + SIDE;
-  const x1 = s < 0 ? -IN + ARM_W - SIDE : W/2;
-  const BEV = 0.003; // rounded edges, inset so the block keeps its size
-  const arm = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(armShape, {
-      depth: x1 - x0 - 2 * BEV, curveSegments: 24,
-      bevelEnabled: true, bevelThickness: BEV, bevelSize: BEV, bevelOffset: -BEV, bevelSegments: 2,
-    }),
-    mat.wood
-  );
-  arm.geometry.translate(0, 0, BEV);
-  arm.rotation.y = -Math.PI / 2;      // shape u -> world z, extrusion -> world -x
-  arm.position.x = x1;                // block spans [x0, x1]
-  arm.name = `arm-${n}`;
-  arm.castShadow = arm.receiveShadow = true;
-  cabinet.add(arm);
-}
+// ---------- The piano, built from the parameters ----------
+// Axes: x = width (bass on the left), y = up, z = towards the player.
+// Positions are in metres; the cabinet's front face sits at z = FRONT.
+const FRONT = 0.04;
 
-// --- Lower front panel (knee board): fabric almost everywhere, with a narrow wooden
-// panel above the pedals, like the pedal lyre that supports a grand piano's pedals ---
-const LOW_Y0 = 0.06, LOW_Y1 = SHELF_TOP - 0.03;
-const PEDAL_PANEL = 0.10; // half-width of the pedal panel (20 cm wide)
-box('knee-rail-bottom', mat.wood, [-IN, LOW_Y0, FRONT - 0.03], [IN, LOW_Y0 + RAIL, FRONT], cabinet);
-box('knee-rail-top',    mat.wood, [-IN, LOW_Y1 - RAIL, FRONT - 0.03], [IN, LOW_Y1, FRONT], cabinet);
-box('pedal-panel', skin.wood, [-PEDAL_PANEL, LOW_Y0 + RAIL, FRONT - 0.03], [PEDAL_PANEL, LOW_Y1 - RAIL, FRONT], cabinet);
-for (const s of [-1, 1]) {
-  const x0 = s < 0 ? -IN : PEDAL_PANEL, x1 = s < 0 ? -PEDAL_PANEL : IN;
-  // Fabric sits 1 cm back from the wooden frame, like an inset panel.
-  box(`grille-${s < 0 ? 'left' : 'right'}`, skin.fabric, [x0, LOW_Y0 + RAIL, FRONT - 0.025], [x1, LOW_Y1 - RAIL, FRONT - 0.015], cabinet);
-}
+// Builds the whole piano from parameters in model units. Returns its root group, the parts the
+// toggles need, and the derived positions the report measures.
+function build(P) {
+  const piano = new THREE.Group(); piano.name = 'piano';
 
-// ---------- Legs, toe blocks, casters ----------
-for (const [s, n] of [[-1, 'left'], [1, 'right']]) {
-  const cx = s * (W/2 - ARM_W/2);                 // centred under the cheek block
-  const LEG = ARM_W/2 - 0.003, TOE = ARM_W/2 + 0.004;
-  box(`leg-${n}`, mat.wood, [cx - LEG, 0.08, ARM_FRONT - 0.07], [cx + LEG, SHELF_TOP - 0.03, ARM_FRONT - 0.01], cabinet);
-  box(`toe-${n}`, mat.wood, [cx - TOE, 0.02, FRONT], [cx + TOE, 0.08, ARM_FRONT], cabinet);
-}
-const casterGeo = new THREE.SphereGeometry(0.02, 16, 12);
-for (const [x, z] of [[-W/2 + 0.04, ARM_FRONT - 0.03], [W/2 - 0.04, ARM_FRONT - 0.03], [-W/2 + 0.04, BACK + 0.04], [W/2 - 0.04, BACK + 0.04]]) {
-  const c = new THREE.Mesh(casterGeo, mat.rubber);
-  c.position.set(x, 0.02, z); c.castShadow = true; cabinet.add(c);
-}
+  const W = P.width, H = P.height;
+  const BACK = FRONT - P.depth;            // back edge of the cabinet (open back)
+  const SIDE = P.sideThickness;
+  const IN = W / 2 - SIDE;                 // inner half-width
+  const FLOOR = P.floorClearance;          // bottom of the side panels, plinth and toe blocks
+  const PLINTH_TOP = FLOOR + P.plinthThickness;
+  const KEY_Y = P.keyTop;                  // top of the white keys
+  const SHELF_TOP = KEY_Y - P.keyboardHeight; // top of the keyboard shelf
+  const KB_SHELF_BOTTOM = SHELF_TOP - P.keyboardShelfThickness;
+  const ARM_W = P.cheekWidth;
+  const ARM_FRONT = FRONT + P.cheekReach;  // front of the cheek blocks / toe blocks
+  const FF = P.frontFrameDepth;            // depth of the front rails and boards
 
-// ---------- Pedals ----------
-const pedals = new THREE.Group(); pedals.name = 'pedals'; piano.add(pedals);
-// Top-view outline (u = x, v = -forward): a narrow lever that flares into a rounded foot pad.
-const pedalShape = new THREE.Shape();
-pedalShape.moveTo(-0.008, 0);
-pedalShape.lineTo(-0.008, -0.05);
-pedalShape.quadraticCurveTo(-0.019, -0.062, -0.019, -0.09);
-pedalShape.quadraticCurveTo(-0.019, -0.125, 0, -0.125);
-pedalShape.quadraticCurveTo(0.019, -0.125, 0.019, -0.09);
-pedalShape.quadraticCurveTo(0.019, -0.062, 0.008, -0.05);
-pedalShape.lineTo(0.008, 0);
-pedalShape.closePath();
-const pedalGeo = new THREE.ExtrudeGeometry(pedalShape, {
-  depth: 0.008, curveSegments: 16,
-  bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2, // softened edges
-});
-['soft', 'middle', 'sustain'].forEach((n, i) => {
-  const pedal = new THREE.Group(); pedal.name = `pedal-${n}`;
-  pedal.position.set((i - 1) * 0.07, 0.048, FRONT - 0.015); // lever starts inside the cabinet
-  pedal.rotation.x = -0.08;                                  // foot pad tilts up towards the front
-  pedals.add(pedal);
-  const m = new THREE.Mesh(pedalGeo, mat.brass);
-  m.rotation.x = -Math.PI / 2;  // shape v -> world -z (forward is +z), extrusion -> world +y
-  m.castShadow = true;
-  pedal.add(m);
-});
-// Dark slot in the plinth where the levers come out.
-box('pedal-slot', mat.rubber, [-0.1, 0.04, FRONT - 0.002], [0.1, 0.065, FRONT + 0.001], pedals);
+  wall.position.z = BACK - P.wallGap;
 
-// ---------- Gear (rough placeholder sizes, check real specs before building) ----------
-const gear = new THREE.Group(); gear.name = 'gear'; piano.add(gear);
+  // ---------- Cabinet ----------
+  const cabinet = new THREE.Group(); cabinet.name = 'cabinet'; piano.add(cabinet);
 
-// Speakers: lower corners, outside the knee zone, behind the fabric, tilted up a little.
-const SPK = { w: 0.19, h: 0.29, d: 0.22 };
-const TILT = 0.12; // radians, face tipped up towards the bench
-for (const s of [-1, 1]) {
-  const spk = new THREE.Group(); spk.name = `speaker-${s < 0 ? 'left' : 'right'}`;
-  // Pivot at the bottom-front edge so the tilt lifts the face, not the base.
-  spk.position.set(s * (IN + CENTRE) / 2, LOW_Y0 + 0.005, FRONT - 0.04);
-  spk.rotation.x = -TILT;
-  gear.add(spk);
-  box('cabinet', mat.speaker, [-SPK.w/2, 0, -SPK.d], [SPK.w/2, SPK.h, 0], spk);
-  disc(mat.cone, 0.065, 0.01, [0, 0.10, 0.002], spk);    // woofer
-  disc(mat.tweeter, 0.018, 0.01, [0, 0.22, 0.002], spk); // tweeter
-}
+  // The upper front leans back by SLANT, starting where the fallboard ends.
+  const UP_Y0 = P.shelfHeight;             // bottom of the slanted upper front (= top of the music shelf)
+  const SLANT = P.slant;                   // θ, lean-back angle of the upper front
+  const TOP_Z = FRONT - (H - UP_Y0) * Math.tan(SLANT); // front edge at the top
 
-// Keyboard controller on the shelf: body + 88 keys. Its back panel hides under the fallboard.
-const KEYS_W = 1.22;
-const WHITE_H_ = 0.022;
-const CTRL = { w: 1.32, d: 0.34 };
-const LIP_TOP = KEY_Y - WHITE_H_ - 0.004;   // front lip ends just under the white keys
-const KEY_FRONT = ARM_FRONT - 0.07;
-const ctrlBackZ = KEY_FRONT + 0.005 - CTRL.d;
-const controller = new THREE.Group(); controller.name = 'controller'; gear.add(controller);
-// Body: lower front lip under the keys, taller section behind them.
-box('controller-base', mat.controller, [-CTRL.w/2, SHELF_TOP, ctrlBackZ], [CTRL.w/2, LIP_TOP, KEY_FRONT + 0.005], controller);
-box('controller-back', mat.controller, [-CTRL.w/2, LIP_TOP, ctrlBackZ], [CTRL.w/2, KEY_Y + 0.003, KEY_FRONT - 0.15], controller);
-box('controller-cheek-l', mat.controller, [-CTRL.w/2, LIP_TOP, KEY_FRONT - 0.15], [-KEYS_W/2, KEY_Y + 0.003, KEY_FRONT + 0.005], controller);
-box('controller-cheek-r', mat.controller, [KEYS_W/2, LIP_TOP, KEY_FRONT - 0.15], [CTRL.w/2, KEY_Y + 0.003, KEY_FRONT + 0.005], controller);
-
-const keys = new Map(); // midi note -> mesh
-const WHITE_COUNT = 52;
-const ww = KEYS_W / WHITE_COUNT;
-const WHITE_LEN = 0.15, WHITE_H = 0.022;
-const BLACK_LEN = 0.095, BLACK_H = 0.012;
-const isBlack = m => [1, 3, 6, 8, 10].includes(m % 12);
-const whiteGeo = roundedBox(ww * 0.94, WHITE_H, WHITE_LEN, 0.0015);
-const blackGeo = roundedBox(ww * 0.55, WHITE_H, BLACK_LEN, 0.002);
-let whiteIndex = 0;
-for (let midi = 21; midi <= 108; midi++) {
-  let mesh;
-  if (!isBlack(midi)) {
-    mesh = new THREE.Mesh(whiteGeo, mat.whiteKey);
-    mesh.position.set(-KEYS_W/2 + ww * (whiteIndex + 0.5), KEY_Y - WHITE_H/2, KEY_FRONT - WHITE_LEN/2);
-    whiteIndex++;
-  } else {
-    mesh = new THREE.Mesh(blackGeo, mat.blackKey);
-    mesh.position.set(-KEYS_W/2 + ww * whiteIndex, KEY_Y - WHITE_H/2 + BLACK_H, KEY_FRONT - WHITE_LEN + BLACK_LEN/2);
+  // Side panels: a side profile (vertical below UP_Y0, slanted above) extruded through the panel thickness.
+  function sidePanel(name, xOuterToInner) {
+    const s = new THREE.Shape();           // shape coords: (u = z, v = y)
+    s.moveTo(BACK, FLOOR);
+    s.lineTo(FRONT, FLOOR);
+    s.lineTo(FRONT, UP_Y0);
+    s.lineTo(TOP_Z, H);
+    s.lineTo(BACK, H);
+    s.closePath();
+    // Small bevel (3 mm) = rounded edges; inset the depth so the panel stays SIDE thick overall.
+    const BEV = 0.003;
+    const m = new THREE.Mesh(new THREE.ExtrudeGeometry(s, {
+      depth: SIDE - 2 * BEV, bevelEnabled: true, bevelThickness: BEV, bevelSize: BEV, bevelOffset: -BEV, bevelSegments: 2,
+    }), mat.wood);
+    m.geometry.translate(0, 0, BEV);
+    m.rotation.y = -Math.PI / 2;           // shape u -> world z, extrusion -> world -x
+    m.position.x = xOuterToInner;          // panel spans [x - SIDE, x]
+    m.name = name;
+    m.castShadow = m.receiveShadow = true;
+    cabinet.add(m);
   }
-  mesh.name = `key-${midi}`;
-  mesh.userData.midi = midi;
-  mesh.castShadow = mesh.receiveShadow = true;
-  controller.add(mesh);
-  keys.set(midi, mesh);
+  sidePanel('side-left', -IN);
+  sidePanel('side-right', W / 2);
+  // Top lid, overhanging the sides, the back and the slanted front
+  box('lid', mat.wood, [-W/2 - P.lidOverhangSide, H, BACK - P.lidOverhangBack],
+      [W/2 + P.lidOverhangSide, H + P.lidThickness, TOP_Z + P.lidOverhangFront], cabinet);
+  // Plinth (floor of the lower cabinet)
+  box('plinth', mat.woodDark, [-IN, FLOOR, BACK], [IN, PLINTH_TOP, FRONT], cabinet);
+
+  // Open back: just two posts and a cross rail for stiffness, like a real upright's back frame.
+  for (const s of [-1, 1]) {
+    const x = s * P.backPostSpacing / 2;
+    box(`back-post-${s < 0 ? 'l' : 'r'}`, mat.woodDark, [x - P.backPostWidth / 2, PLINTH_TOP, BACK],
+        [x + P.backPostWidth / 2, H, BACK + P.backFrameDepth], cabinet);
+  }
+  box('back-rail', mat.woodDark, [-IN, P.backRailHeight, BACK],
+      [IN, P.backRailHeight + P.backRailThickness, BACK + P.backFrameDepth], cabinet);
+
+  // --- Upper front: one seamless panel, leaning back by SLANT ---
+  // Lift-off access like a real upright: held by hidden clips or magnets, no hinges, no seam.
+  const upper = new THREE.Group(); upper.name = 'upper-panel';
+  upper.position.set(0, UP_Y0, FRONT - 0.002);
+  upper.rotation.x = -SLANT; // top leans back
+  cabinet.add(upper);
+  const PANEL_L = (H - UP_Y0) / Math.cos(SLANT);
+  box('upper-panel', skin.wood, [-IN, 0, -P.upperPanelThickness], [IN, PANEL_L, 0], upper);
+  // Inner shelf the electronics sit on, just above the fallboard.
+  const E = UP_Y0 + P.electronicsShelfThickness; // shelf top
+  box('electronics-shelf', mat.woodDark, [-IN, UP_Y0, BACK], [IN, E, FRONT - FF], cabinet);
+
+  // --- Fallboard: a vertical board behind the keys with a flat shelf on top (Boston-style) ---
+  // It hides the keyboard's back panel, and its top shelf is the one ledge for music and phone.
+  const KEY_FRONT = ARM_FRONT - P.keySetback;
+  const FALL_FRONT = KEY_FRONT - P.whiteKeyLength + P.fallboardOverhang; // overhangs the back ends of the keys
+  const SHELF_T = P.musicShelfThickness;
+  // Clears the black-key tops, leaving room to slide the keyboard in and out.
+  const FALL_BOTTOM = KEY_Y + P.blackKeyRise + P.fallboardKeyGap;
+  // Runs only between the cheek blocks, so its ends don't poke through their curved tops.
+  const FALL_X = W / 2 - ARM_W;            // inner face of the cheek blocks
+  box('fallboard', mat.wood, [-FALL_X, FALL_BOTTOM, FRONT - FF], [FALL_X, UP_Y0 - SHELF_T, FALL_FRONT], cabinet);
+  const SHELF_FRONT = FALL_FRONT + P.musicShelfLip; // front edge of the phone/music shelf
+  box('fallboard-shelf', mat.wood, [-FALL_X, UP_Y0 - SHELF_T, FRONT - FF], [FALL_X, UP_Y0, SHELF_FRONT], cabinet);
+
+  // --- On the shelf: phone, tablet or sheet music, leaning back on the slanted panel ---
+  function device(name, w, h, bezel, screenMat) {
+    const d = new THREE.Group(); d.name = name;
+    d.position.set(0, UP_Y0, FRONT + 0.004);
+    d.rotation.x = -SLANT;
+    cabinet.add(d);
+    box(`${name}-body`, mat.phone, [-w / 2, 0, 0], [w / 2, h, 0.008], d);
+    box(`${name}-screen`, screenMat, [-w / 2 + bezel, bezel, 0.008], [w / 2 - bezel, h - bezel, 0.0085], d);
+    return d;
+  }
+  // Phone (portrait) and tablet (landscape, ~11"), each showing the plugin screen.
+  const phone  = device('phone', P.phoneWidth, P.phoneHeight, 0.003, phoneScreenMat);
+  const tablet = device('tablet', P.tabletWidth, P.tabletHeight, 0.008, tabletScreenMat);
+
+  // Sheet music: an open book (two pages) standing on the shelf, leaning on the panel.
+  const music = new THREE.Group(); music.name = 'sheet-music';
+  music.position.set(0, UP_Y0, FRONT + 0.004);
+  music.rotation.x = -SLANT;
+  cabinet.add(music);
+  [-1, 1].forEach((s, i) => {
+    // Each page hinges at the spine (x = 0) and opens slightly towards the player.
+    const hinge = new THREE.Group();
+    hinge.rotation.y = s * -0.12;
+    music.add(hinge);
+    const page = new THREE.Mesh(new THREE.BoxGeometry(P.pageWidth, P.pageHeight, 0.003), [
+      mat.whiteKey, mat.whiteKey, mat.whiteKey, mat.whiteKey, pageMats[i], mat.whiteKey, // +z face shows the music
+    ]);
+    page.position.set(s * P.pageWidth / 2, P.pageHeight / 2, 0.003);
+    page.castShadow = true;
+    hinge.add(page);
+  });
+
+  // --- Keyboard shelf and cheek blocks ---
+  box('keyboard-shelf', mat.wood, [-IN, KB_SHELF_BOTTOM, BACK + P.backFrameDepth],
+      [IN, SHELF_TOP, ARM_FRONT - P.keyboardShelfSetback], cabinet);
+  // Curved cheek blocks: low at the front, sweeping up in a concave curve to the cabinet
+  // (inspired by the Boston upright). Side profile extruded across the block's width.
+  const ARM_LOW = KEY_Y + P.cheekRise, ARM_HIGH = UP_Y0; // flat top is flush with the top of the shelf
+  const armShape = new THREE.Shape();    // shape coords: (u = z, v = y)
+  armShape.moveTo(FRONT, KB_SHELF_BOTTOM);
+  armShape.lineTo(ARM_FRONT, KB_SHELF_BOTTOM);
+  armShape.lineTo(ARM_FRONT, ARM_LOW);
+  // Flat top over roughly the back half, then a gentle curve down to the low front.
+  const ARM_DY = ARM_HIGH - ARM_LOW;
+  const ARM_FLAT_Z = SHELF_FRONT - P.cheekFlatSetback; // so the shelf protrudes past the cheek
+  const DROP = ARM_FRONT - ARM_FLAT_Z;
+  armShape.bezierCurveTo(
+    ARM_FRONT - 0.35 * DROP, ARM_LOW,          // leave the front heading back, nearly level
+    ARM_FLAT_Z + 0.15 * DROP, ARM_HIGH - 0.45 * ARM_DY, // rise fairly steeply near the shoulder
+    ARM_FLAT_Z, ARM_HIGH
+  );
+  armShape.lineTo(FRONT, ARM_HIGH);            // flat top back to the cabinet
+  armShape.closePath();
+  for (const [s, n] of [[-1, 'left'], [1, 'right']]) {
+    const x0 = s < 0 ? -W/2 : W/2 - ARM_W;
+    const x1 = s < 0 ? -W/2 + ARM_W : W/2;
+    const BEV = 0.003; // rounded edges, inset so the block keeps its size
+    const arm = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(armShape, {
+        depth: x1 - x0 - 2 * BEV, curveSegments: 24,
+        bevelEnabled: true, bevelThickness: BEV, bevelSize: BEV, bevelOffset: -BEV, bevelSegments: 2,
+      }),
+      mat.wood
+    );
+    arm.geometry.translate(0, 0, BEV);
+    arm.rotation.y = -Math.PI / 2;      // shape u -> world z, extrusion -> world -x
+    arm.position.x = x1;                // block spans [x0, x1]
+    arm.name = `arm-${n}`;
+    arm.castShadow = arm.receiveShadow = true;
+    cabinet.add(arm);
+  }
+
+  // --- Lower front panel (knee board): fabric almost everywhere, with a narrow wooden
+  // panel above the pedals, like the pedal lyre that supports a grand piano's pedals ---
+  const LOW_Y0 = PLINTH_TOP, LOW_Y1 = KB_SHELF_BOTTOM;
+  const RAIL = P.kneeRailHeight;
+  const PEDAL_PANEL = P.pedalPanelWidth / 2;
+  box('knee-rail-bottom', mat.wood, [-IN, LOW_Y0, FRONT - FF], [IN, LOW_Y0 + RAIL, FRONT], cabinet);
+  box('knee-rail-top',    mat.wood, [-IN, LOW_Y1 - RAIL, FRONT - FF], [IN, LOW_Y1, FRONT], cabinet);
+  box('pedal-panel', skin.wood, [-PEDAL_PANEL, LOW_Y0 + RAIL, FRONT - FF], [PEDAL_PANEL, LOW_Y1 - RAIL, FRONT], cabinet);
+  for (const s of [-1, 1]) {
+    const x0 = s < 0 ? -IN : PEDAL_PANEL, x1 = s < 0 ? -PEDAL_PANEL : IN;
+    // Fabric sits back from the wooden frame, like an inset panel.
+    box(`grille-${s < 0 ? 'left' : 'right'}`, skin.fabric,
+        [x0, LOW_Y0 + RAIL, FRONT - P.fabricInset - P.fabricThickness], [x1, LOW_Y1 - RAIL, FRONT - P.fabricInset], cabinet);
+  }
+
+  // ---------- Legs, toe blocks, casters ----------
+  const TOE_TOP = FLOOR + P.toeHeight;
+  for (const [s, n] of [[-1, 'left'], [1, 'right']]) {
+    const cx = s * (W/2 - ARM_W/2);                 // centred under the cheek block
+    const LEG = ARM_W/2 - P.legInset, TOE = ARM_W/2 + P.toeOverhang;
+    box(`leg-${n}`, mat.wood, [cx - LEG, TOE_TOP, ARM_FRONT - P.legSetback - P.legDepth],
+        [cx + LEG, KB_SHELF_BOTTOM, ARM_FRONT - P.legSetback], cabinet);
+    box(`toe-${n}`, mat.wood, [cx - TOE, FLOOR, FRONT], [cx + TOE, TOE_TOP, ARM_FRONT], cabinet);
+  }
+  const casterR = P.casterDiameter / 2;
+  const casterGeo = new THREE.SphereGeometry(casterR, 16, 12);
+  const cxs = W/2 - P.casterInsetSide;
+  for (const [x, z] of [[-cxs, ARM_FRONT - P.casterInsetFront], [cxs, ARM_FRONT - P.casterInsetFront],
+                        [-cxs, BACK + P.casterInsetBack], [cxs, BACK + P.casterInsetBack]]) {
+    const c = new THREE.Mesh(casterGeo, mat.rubber);
+    c.position.set(x, casterR, z); c.castShadow = true; cabinet.add(c);
+  }
+
+  // ---------- Pedals ----------
+  const pedals = new THREE.Group(); pedals.name = 'pedals'; piano.add(pedals);
+  // Top-view outline (u = x, v = -forward): a narrow lever that flares into a rounded foot pad.
+  const lw = P.pedalLeverWidth / 2, pw = P.pedalPadWidth / 2, L = P.pedalLength, L1 = P.pedalLeverLength;
+  const flareCtl = L1 + (L - L1) * 0.16, flareEnd = L - (L - L1) * 7 / 15;
+  const pedalShape = new THREE.Shape();
+  pedalShape.moveTo(-lw, 0);
+  pedalShape.lineTo(-lw, -L1);
+  pedalShape.quadraticCurveTo(-pw, -flareCtl, -pw, -flareEnd);
+  pedalShape.quadraticCurveTo(-pw, -L, 0, -L);
+  pedalShape.quadraticCurveTo(pw, -L, pw, -flareEnd);
+  pedalShape.quadraticCurveTo(pw, -flareCtl, lw, -L1);
+  pedalShape.lineTo(lw, 0);
+  pedalShape.closePath();
+  const pedalGeo = new THREE.ExtrudeGeometry(pedalShape, {
+    depth: P.pedalThickness, curveSegments: 16,
+    bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2, // softened edges
+  });
+  ['soft', 'middle', 'sustain'].forEach((n, i) => {
+    const pedal = new THREE.Group(); pedal.name = `pedal-${n}`;
+    pedal.position.set((i - 1) * P.pedalSpacing, P.pedalHeight, FRONT - P.pedalSetback); // lever starts inside the cabinet
+    pedal.rotation.x = -P.pedalTilt;                     // foot pad tilts up towards the front
+    pedals.add(pedal);
+    const m = new THREE.Mesh(pedalGeo, mat.brass);
+    m.rotation.x = -Math.PI / 2;  // shape v -> world -z (forward is +z), extrusion -> world +y
+    m.castShadow = true;
+    pedal.add(m);
+  });
+  // Dark slot in the plinth where the levers come out.
+  const SLOT_Y0 = P.pedalHeight - 0.008;
+  box('pedal-slot', mat.rubber, [-P.pedalSlotWidth / 2, SLOT_Y0, FRONT - 0.002],
+      [P.pedalSlotWidth / 2, SLOT_Y0 + P.pedalSlotHeight, FRONT + 0.001], pedals);
+
+  // ---------- Gear (rough placeholder sizes, check real specs before building) ----------
+  const gear = new THREE.Group(); gear.name = 'gear'; piano.add(gear);
+
+  // Speakers: lower corners, outside the knee zone, behind the fabric, tilted up a little.
+  const CENTRE = P.kneeZoneWidth / 2;
+  const SPK_X = (IN + CENTRE) / 2;          // centred between the knee zone and the side panel
+  for (const s of [-1, 1]) {
+    const spk = new THREE.Group(); spk.name = `speaker-${s < 0 ? 'left' : 'right'}`;
+    // Pivot at the bottom-front edge so the tilt lifts the face, not the base.
+    spk.position.set(s * SPK_X, LOW_Y0 + P.speakerLift, FRONT - P.speakerSetback);
+    spk.rotation.x = -P.speakerTilt;
+    gear.add(spk);
+    box('cabinet', mat.speaker, [-P.speakerWidth/2, 0, -P.speakerDepth], [P.speakerWidth/2, P.speakerHeight, 0], spk);
+    disc(mat.cone, P.wooferDiameter / 2, 0.01, [0, P.wooferHeight, 0.002], spk);
+    disc(mat.tweeter, P.tweeterDiameter / 2, 0.01, [0, P.tweeterHeight, 0.002], spk);
+  }
+
+  // Keyboard controller on the shelf: body + 88 keys. Its back panel hides under the fallboard.
+  const KEYS_W = P.keyRangeWidth;
+  const WHITE_LEN = P.whiteKeyLength, WHITE_H = P.whiteKeyHeight;
+  const BLACK_LEN = P.blackKeyLength, BLACK_H = P.blackKeyRise;
+  const CTRL_W = P.controllerWidth;
+  const CTRL_TOP = KEY_Y + P.controllerBackRise;
+  const LIP_TOP = KEY_Y - WHITE_H - 0.004;   // front lip ends just under the white keys
+  const ctrlBackZ = KEY_FRONT + 0.005 - P.controllerDepth;
+  const controller = new THREE.Group(); controller.name = 'controller'; gear.add(controller);
+  // Body: lower front lip under the keys, taller section behind them.
+  box('controller-base', mat.controller, [-CTRL_W/2, SHELF_TOP, ctrlBackZ], [CTRL_W/2, LIP_TOP, KEY_FRONT + 0.005], controller);
+  box('controller-back', mat.controller, [-CTRL_W/2, LIP_TOP, ctrlBackZ], [CTRL_W/2, CTRL_TOP, KEY_FRONT - WHITE_LEN], controller);
+  box('controller-cheek-l', mat.controller, [-CTRL_W/2, LIP_TOP, KEY_FRONT - WHITE_LEN], [-KEYS_W/2, CTRL_TOP, KEY_FRONT + 0.005], controller);
+  box('controller-cheek-r', mat.controller, [KEYS_W/2, LIP_TOP, KEY_FRONT - WHITE_LEN], [CTRL_W/2, CTRL_TOP, KEY_FRONT + 0.005], controller);
+
+  const keys = new Map(); // midi note -> mesh
+  const WHITE_COUNT = 52;
+  const ww = KEYS_W / WHITE_COUNT;
+  const isBlack = m => [1, 3, 6, 8, 10].includes(m % 12);
+  const whiteGeo = roundedBox(ww * 0.94, WHITE_H, WHITE_LEN, 0.0015);
+  const blackGeo = roundedBox(ww * 0.55, WHITE_H, BLACK_LEN, 0.002);
+  let whiteIndex = 0;
+  for (let midi = 21; midi <= 108; midi++) {
+    let mesh;
+    if (!isBlack(midi)) {
+      mesh = new THREE.Mesh(whiteGeo, mat.whiteKey);
+      mesh.position.set(-KEYS_W/2 + ww * (whiteIndex + 0.5), KEY_Y - WHITE_H/2, KEY_FRONT - WHITE_LEN/2);
+      whiteIndex++;
+    } else {
+      mesh = new THREE.Mesh(blackGeo, mat.blackKey);
+      mesh.position.set(-KEYS_W/2 + ww * whiteIndex, KEY_Y - WHITE_H/2 + BLACK_H, KEY_FRONT - WHITE_LEN + BLACK_LEN/2);
+    }
+    mesh.name = `key-${midi}`;
+    mesh.userData.midi = midi;
+    mesh.castShadow = mesh.receiveShadow = true;
+    controller.add(mesh);
+    keys.set(midi, mesh);
+  }
+
+  // Upper cabinet: electronics on the inner shelf, behind the slanted panel.
+  // Each item's front sits on a line EF (behind the panel), set back by its own gap.
+  const EF = FRONT - P.gearSetback;
+  const gearItems = [
+    // PC: slim SilverStone-style Mini-ITX case, ~7.6 x 25.4 x 35.6 cm, lying flat.
+    { name: 'pc', label: 'PC', material: mat.pc, left: P.pcLeft, w: P.pcWidth, h: P.pcHeight, d: P.pcDepth, gap: P.pcFrontGap },
+    { name: 'fosi-amp', label: 'Amp', material: mat.amp, left: P.ampLeft, w: P.ampWidth, h: P.ampHeight, d: P.ampDepth, gap: P.ampFrontGap },
+    { name: 'scarlett', label: 'Interface', material: mat.scarlett, left: P.interfaceLeft, w: P.interfaceWidth, h: P.interfaceHeight, d: P.interfaceDepth, gap: P.interfaceFrontGap },
+  ];
+  for (const g of gearItems) {
+    g.front = EF - g.gap; g.back = g.front - g.d; g.right = g.left + g.w; g.top = E + g.h;
+    box(g.name, g.material, [g.left, E, g.back], [g.right, g.top, g.front], gear);
+  }
+
+  return {
+    piano, keys, gear, pedals, phone, tablet, music,
+    // Positions and sizes the report measures (metres / radians).
+    m: {
+      W, H, BACK, IN, UP_Y0, SLANT, PANEL_L, E, SHELF_TOP, KB_SHELF_BOTTOM, ARM_W, ARM_FRONT,
+      FALL_BOTTOM, FALL_FRONT, SHELF_FRONT, LOW_Y0, LOW_Y1, RAIL, CENTRE, SPK_X, KEY_Y, KEY_FRONT,
+      CTRL_W, CTRL_TOP, ctrlBackZ, gearItems,
+    },
+  };
 }
 
-// Upper cabinet: electronics on the inner shelf, behind the doors.
-// PC: slim SilverStone-style Mini-ITX case, ~3" x 10" x 14" (7.6 x 25.4 x 35.6 cm), lying flat.
-const PC = { w: 0.356, h: 0.076, d: 0.254 };
-const EF = FRONT - 0.065; // keep a gap behind the slanted doors
-box('pc', mat.pc, [-0.62, E, EF - PC.d], [-0.62 + PC.w, E + PC.h, EF], gear);
-box('fosi-amp', mat.amp, [0.05, E, EF - 0.14], [0.18, E + 0.04, EF - 0.01], gear);
-box('scarlett', mat.scarlett, [0.25, E, EF - 0.12], [0.43, E + 0.045, EF - 0.02], gear);
+// ---------- Report: derived dimensions and design checks ----------
+// Derived values follow from the parameters, so they have no sliders. Checks turn the design
+// rules into numbers: each shows a margin (positive = fine) and turns red when it fails.
+function measure(P, m) {
+  const cm = v => v * 100;
+  // Inner face of the slanted upper panel, as a z position at height y.
+  const panelInnerZ = y => FRONT - 0.002 - (y - m.UP_Y0) * Math.tan(m.SLANT) - P.upperPanelThickness / Math.cos(m.SLANT);
+  const g = m.gearItems;
+  const sorted = [...g].sort((a, b) => a.left - b.left);
+  const gaps = sorted.slice(1).map((it, i) => it.left - sorted[i].right);
+
+  const derived = [
+    ['Upper section height (shelf to lid)', cm(m.H - m.UP_Y0)],
+    ['Upper panel length (along the slant)', cm(m.PANEL_L)],
+    ['Overall depth (back to cheek front)', cm(m.ARM_FRONT - m.BACK)],
+    ['Footprint from the wall', cm(m.ARM_FRONT - m.BACK + P.wallGap)],
+    ['Space between the cheek blocks', cm(m.W - 2 * m.ARM_W)],
+    ['Music shelf depth (from the panel)', cm(m.SHELF_FRONT - FRONT)],
+    ['Keyboard shelf top height', cm(m.SHELF_TOP)],
+    ['Keyboard shelf underside height', cm(m.KB_SHELF_BOTTOM)],
+    ['Fallboard bottom height', cm(m.FALL_BOTTOM)],
+    ['Leg width', cm(m.ARM_W - 2 * P.legInset)],
+  ];
+  // [label, margin (cm), minimum wanted (cm)]
+  const spkTop = m.LOW_Y0 + P.speakerLift + P.speakerHeight * Math.cos(P.speakerTilt);
+  const spkBackBottom = m.LOW_Y0 + P.speakerLift - P.speakerDepth * Math.sin(P.speakerTilt);
+  const spkBackZ = FRONT - P.speakerSetback - P.speakerHeight * Math.sin(P.speakerTilt) - P.speakerDepth * Math.cos(P.speakerTilt);
+  const leverOuter = P.pedalSpacing + P.pedalLeverWidth / 2;
+  const checks = [
+    ['Sheet music clears the lid', cm(m.H - (m.UP_Y0 + P.pageHeight * Math.cos(m.SLANT))), 3],
+    ['Tablet clears the lid', cm(m.H - (m.UP_Y0 + P.tabletHeight * Math.cos(m.SLANT))), 1],
+    ['Keyboard fits between the cheek blocks (each side)', cm((m.W - 2 * m.ARM_W - m.CTRL_W) / 2), 1],
+    ['Keyboard clears the back frame', cm(m.ctrlBackZ - (m.BACK + P.backFrameDepth)), 0],
+    ['Keyboard back slides under the fallboard', cm(m.FALL_BOTTOM - m.CTRL_TOP), 0.5],
+    ['Electronics clear the upper panel', cm(Math.min(...g.map(it => panelInnerZ(it.top) - it.front))), 1],
+    ['Electronics stay below the lid', cm(Math.min(...g.map(it => m.H - it.top))), 1],
+    ['Electronics fit between the side panels', cm(Math.min(...g.map(it => Math.min(it.left + m.IN, m.IN - it.right)))), 0],
+    ['Electronics don\'t overlap each other', cm(Math.min(...gaps)), 0],
+    ['Electronics fit the cabinet depth', cm(Math.min(...g.map(it => it.back - m.BACK))), 0],
+    ['Speakers stay outside the knee zone', cm(m.SPK_X - P.speakerWidth / 2 - m.CENTRE), 0],
+    ['Speakers fit inside the side panels', cm(m.IN - (m.SPK_X + P.speakerWidth / 2)), 0],
+    ['Speakers clear the plinth (tilted back edge)', cm(spkBackBottom - m.LOW_Y0), 0],
+    ['Speakers fit under the knee rail', cm((m.LOW_Y1 - m.RAIL) - spkTop), 0],
+    ['Speakers fit the cabinet depth', cm(spkBackZ - m.BACK), 0],
+    ['Pedal levers fit the slot', cm(P.pedalSlotWidth / 2 - leverOuter), 0],
+  ];
+  return { derived, checks };
+}
+
+const reportEl = document.getElementById('report');
+const fmt = v => `${v.toFixed(1)} cm`;
+function renderReport({ derived, checks }) {
+  const rows = (list, f) => list.map(f).join('');
+  reportEl.innerHTML =
+    `<h4>Derived (no sliders)</h4><table>${rows(derived, ([l, v]) => `<tr><td>${l}</td><td class="v">${fmt(v)}</td></tr>`)}</table>` +
+    `<h4>Checks (margin)</h4><table>${rows(checks, ([l, v, min]) =>
+      `<tr class="${v >= min - 1e-9 ? '' : 'bad'}"><td>${v >= min - 1e-9 ? '✓' : '✗'} ${l}</td><td class="v">${fmt(v)}</td>` +
+      `<td class="want">≥ ${min} cm</td></tr>`)}</table>`;
+}
+
+// ---------- Build, and rebuild when a slider moves ----------
+let current = null;
+function rebuild() {
+  if (current) {
+    scene.remove(current.piano);
+    current.piano.traverse(o => o.geometry?.dispose());
+  }
+  const P = toModelUnits(params);
+  current = build(P);
+  scene.add(current.piano);
+  applyShelf(shelfSel.value);
+  const report = measure(P, current.m);
+  renderReport(report);
+  window.piano = { ...window.piano, ...current, params, report };
+}
+// Slider drags fire many changes; rebuild at most once per frame.
+let dirty = false;
+function requestRebuild() { dirty = true; }
 
 // ---------- Toggles ----------
+const shelfSel = document.getElementById('shelf');
+function applyShelf(v) {
+  if (!current) return;
+  current.phone.visible = v === 'phone'; current.tablet.visible = v === 'tablet'; current.music.visible = v === 'music';
+}
+shelfSel.addEventListener('change', () => applyShelf(shelfSel.value));
+
 const xray = document.getElementById('xray');
 xray.addEventListener('change', () => {
   for (const m of Object.values(skin)) { m.opacity = xray.checked ? 0.12 : 1; m.depthWrite = !xray.checked; }
@@ -548,8 +833,82 @@ applyFinish(finishSel.value);
 const wallBox = document.getElementById('wall');
 wallBox.addEventListener('change', () => { wall.visible = wallBox.checked; });
 
-// Expose for poking around in the console.
-window.piano = { scene, piano, keys, gear, pedals, camera, controls, renderer, sun, mat, applyFinish };
+// ---------- Slider panel ----------
+const toastEl = document.getElementById('toast');
+let toastTimer;
+function toast(text) {
+  toastEl.textContent = text; toastEl.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 1800);
+}
+const round = v => Math.round(v * 1e4) / 1e4;
+const isChanged = k => Math.abs(params[k] - DEFAULTS[k]) > 1e-9;
+function changedValues() {
+  return Object.fromEntries(SCHEMA.map(s => s[1]).filter(isChanged).map(k => [k, round(params[k])]));
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch { window.prompt('Copy these values:', text); return false; }
+}
+
+const gui = new GUI({ title: 'Dimensions' });
+const controllers = new Map();
+function markChanged() {
+  for (const [k, c] of controllers) c.domElement.classList.toggle('changed', isChanged(k));
+}
+function onParamsChanged() { markChanged(); saveParams(); requestRebuild(); }
+
+const actions = {
+  async copyChanged() {
+    const v = changedValues(), n = Object.keys(v).length;
+    if (await copyText(JSON.stringify(v, null, 2))) toast(n ? `Copied ${n} changed value${n > 1 ? 's' : ''}` : 'Nothing changed: copied {}');
+  },
+  async copyAll() {
+    const all = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, round(v)]));
+    if (await copyText(JSON.stringify(all, null, 2))) toast('Copied all values');
+  },
+  async paste() {
+    let text;
+    try { text = await navigator.clipboard.readText(); } catch { text = window.prompt('Paste values (JSON):'); }
+    if (!text) return;
+    let values;
+    try { values = JSON.parse(text); } catch { toast('That isn\'t valid JSON'); return; }
+    let n = 0;
+    for (const [k, v] of Object.entries(values)) if (k in DEFAULTS && typeof v === 'number') { params[k] = v; n++; }
+    // Pasted values start from the defaults: anything not in the paste goes back to its default.
+    for (const k of Object.keys(DEFAULTS)) if (!(k in values)) params[k] = DEFAULTS[k];
+    for (const c of controllers.values()) c.updateDisplay();
+    onParamsChanged();
+    toast(`Loaded ${n} value${n === 1 ? '' : 's'}; the rest are defaults`);
+  },
+  reset() {
+    Object.assign(params, DEFAULTS);
+    for (const c of controllers.values()) c.updateDisplay();
+    onParamsChanged();
+    toast('Back to the defaults');
+  },
+};
+const valuesFolder = gui.addFolder('Values');
+valuesFolder.add(actions, 'copyChanged').name('Copy changed values');
+valuesFolder.add(actions, 'copyAll').name('Copy all values');
+valuesFolder.add(actions, 'paste').name('Paste values');
+valuesFolder.add(actions, 'reset').name('Reset to defaults');
+
+const folders = new Map();
+for (const [folder, key, label, , min, max, step, unit] of SCHEMA) {
+  if (!folders.has(folder)) folders.set(folder, gui.addFolder(folder).close());
+  const c = folders.get(folder).add(params, key, min, max, step).name(`${label} (${unit})`);
+  c.onChange(onParamsChanged);
+  // Double-click a slider's name to put that one value back to its default.
+  c.domElement.querySelector('.name').addEventListener('dblclick', () => {
+    params[key] = DEFAULTS[key]; c.updateDisplay(); onParamsChanged();
+  });
+  controllers.set(key, c);
+}
+folders.get('Cabinet').open();
+markChanged();
+
+window.piano = { scene, camera, controls, renderer, sun, mat, applyFinish, gui, DEFAULTS, rebuild };
+rebuild();
 
 // ---------- Loop ----------
 addEventListener('resize', () => {
@@ -557,7 +916,11 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop(() => {
+  if (dirty) { dirty = false; rebuild(); }
+  controls.update();
+  renderer.render(scene, camera);
+});
 </script>
 </body>
 </html>
