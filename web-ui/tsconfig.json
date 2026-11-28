@@ -1,0 +1,20 @@
+// Type-checks the web UI (`npm run build:ui`); Vite compiles it for the browser.
+{
+    "compilerOptions": {
+        "target": "es2024",
+        "lib": ["es2024", "dom", "dom.iterable"],
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "jsx": "react-jsx",
+        "types": ["vite/client"],
+        "noEmit": true,
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "allowImportingTsExtensions": true,
+        "skipLibCheck": true
+    },
+    "include": ["src"]
+}
