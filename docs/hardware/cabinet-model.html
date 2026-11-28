@@ -7,13 +7,15 @@
   html, body { margin: 0; height: 100%; background: #c9ccd1; overflow: hidden; font-family: system-ui, sans-serif; }
   #ui { position: fixed; left: 12px; top: 10px; background: rgba(255,255,255,.75); padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #222; }
   #ui label { display: block; margin: 2px 0; cursor: pointer; }
-  #report { position: fixed; left: 12px; top: 128px; max-height: calc(100% - 170px); overflow: auto; background: rgba(255,255,255,.75); padding: 6px 12px 8px; border-radius: 6px; font-size: 12px; color: #222; }
+  #report { position: fixed; left: 12px; top: 176px; max-height: calc(100% - 218px); overflow: auto; background: rgba(255,255,255,.75); padding: 6px 12px 8px; border-radius: 6px; font-size: 12px; color: #222; }
   #report h4 { margin: 6px 0 2px; font-size: 12px; }
   #report table { border-collapse: collapse; }
   #report td { padding: 1px 0; }
   #report td.v { text-align: right; padding-left: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   #report .bad td { color: #b3121b; font-weight: 600; }
   #report .want { opacity: .6; padding-left: 8px; white-space: nowrap; }
+  #ptbar { margin-top: 4px; font-variant-numeric: tabular-nums; }
+  #ptbar button { font-size: 12px; margin-left: 6px; }
   #hint { position: fixed; left: 12px; bottom: 10px; color: #333; font-size: 12px; opacity: .7; }
   #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #222; color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   /* lil-gui: values that differ from the committed defaults are highlighted. */
@@ -22,8 +24,11 @@
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/",
+  "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.10.0/src/index.js",
+  "three-gpu-pathtracer": "https://cdn.jsdelivr.net/npm/three-gpu-pathtracer@0.0.28/src/index.js"
 } }
 </script>
 </head>
@@ -45,6 +50,8 @@
       <option value="music">Sheet music</option>
     </select>
   </label>
+  <label><input type="checkbox" id="pathtrace"> Path-traced still</label>
+  <div id="ptbar" hidden><span id="ptstatus"></span> <button id="ptsave">Save PNG</button></div>
 </div>
 <div id="report"></div>
 <div id="hint">Drag to orbit · scroll to zoom · right-drag to pan · gear sizes are rough placeholders</div>
@@ -55,6 +62,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { WebGLPathTracer } from 'three-gpu-pathtracer';
 
 // ---------- Parameters ----------
 // Every design dimension of the model, in centimetres or degrees. Each one gets a slider.
@@ -216,7 +225,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 // Filmic tone mapping: highlights roll off smoothly and dark areas keep detail.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.75;
@@ -224,10 +233,37 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xc9ccd1);
-// Environment lighting: a simple virtual room for glossy surfaces to reflect.
+// Environment lighting: a real living room (an HDRI photo) for lighting and reflections.
+// A simple virtual room stands in until the photo has loaded.
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.5;
+new EXRLoader().load('textures/lebombo_2k.exr', t => {
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = t;
+  pt.dirty = true;
+});
+
+// ---------- Textures (CC0; sources are listed in the README) ----------
+const loadingManager = new THREE.LoadingManager(() => { pt.dirty = true; });
+const texLoader = new THREE.TextureLoader(loadingManager);
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+function tex(file, srgb = false) {
+  const t = texLoader.load('textures/' + file);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = maxAniso;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const TEX = {
+  wood:   { map: tex('wood_table_001_diff_2k.jpg', true), normalMap: tex('wood_table_001_nor_gl_2k.jpg'), roughnessMap: tex('wood_table_001_rough_2k.jpg') },
+  floor:  { map: tex('laminate_floor_02_diff_1k.jpg', true), normalMap: tex('laminate_floor_02_nor_gl_1k.jpg'), roughnessMap: tex('laminate_floor_02_rough_1k.jpg') },
+  fabric: { map: tex('fabric030_color_1k.jpg', true), normalMap: tex('fabric030_normal_1k.jpg'), roughnessMap: tex('fabric030_rough_1k.jpg') },
+  brass:  { normalMap: tex('metal009_normal_1k.jpg'), roughnessMap: tex('metal009_rough_1k.jpg') },
+};
+
+// Path tracer state (set up further down); declared early so loaders can mark it out of date.
+const pt = { on: false, tracer: null, dirty: true };
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 50);
 camera.position.set(1.6, 1.4, 2.4);
@@ -248,8 +284,10 @@ scene.add(sun);
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(10, 10),
-  new THREE.MeshStandardMaterial({ color: 0xbfc2c7, roughness: 1 })
+  new THREE.MeshStandardMaterial({ ...TEX.floor, roughness: 1 })
 );
+// Planks at real size: one texture tile covers 1.6 m of floor.
+floor.geometry.attributes.uv.array.forEach((v, i, a) => { a[i] = v * 10 / 1.6; });
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
@@ -257,14 +295,15 @@ scene.add(floor);
 // ---------- Materials ----------
 const mat = {
   // Lacquered wood: a base colour layer plus a glossy clear coat on top, like a real piano finish.
-  wood:      new THREE.MeshPhysicalMaterial({ color: 0x5b3220, roughness: 0.45, clearcoat: 0.6, clearcoatRoughness: 0.15 }),
-  woodDark:  new THREE.MeshStandardMaterial({ color: 0x3f2215, roughness: 0.4 }),
+  // The finish (below) sets the colour and texture maps.
+  wood:      new THREE.MeshPhysicalMaterial({ roughness: 0.45, clearcoat: 0.6, clearcoatRoughness: 0.15 }),
+  woodDark:  new THREE.MeshStandardMaterial({ roughness: 0.6 }),
   // Glossy key plastic: slightly soft base with a smooth clear coat on top.
   whiteKey:  new THREE.MeshPhysicalMaterial({ color: 0xf2efe6, roughness: 0.35, clearcoat: 1.0, clearcoatRoughness: 0.06 }),
   blackKey:  new THREE.MeshPhysicalMaterial({ color: 0x0d0d0e, roughness: 0.4, clearcoat: 1.0, clearcoatRoughness: 0.08 }),
   // Polished, lacquered brass: fully metallic, lightly brushed (anisotropic), thin clear coat.
   brass:     new THREE.MeshPhysicalMaterial({
-    color: 0xe0b764, metalness: 1.0, roughness: 0.2,
+    color: 0xe0b764, metalness: 1.0, roughness: 0.3, ...TEX.brass, normalScale: new THREE.Vector2(0.3, 0.3),
     anisotropy: 0.4, clearcoat: 0.5, clearcoatRoughness: 0.05,
   }),
   rubber:    new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 }),
@@ -282,10 +321,29 @@ const mat = {
 };
 // Front "skin" panels get their own materials so X-ray can fade just them.
 const skin = {
-  fabric: new THREE.MeshStandardMaterial({ color: 0x6e5a48, roughness: 1, transparent: true }),
+  fabric: new THREE.MeshStandardMaterial({ ...TEX.fabric, roughness: 1, transparent: true }),
   wood:   mat.wood.clone(),
 };
 skin.wood.transparent = true;
+
+// Textures are mapped by real size, not stretched per face: each face is projected along its
+// main axis, so grain runs up the sides and front and across the top (the image's grain runs along v).
+// A per-part offset keeps neighbouring boards from showing the same patch of grain.
+const UV_TILE = new Map([[mat.wood, 0.9], [skin.wood, 0.9], [mat.woodDark, 0.9], [skin.fabric, 0.25], [mat.brass, 0.25]]);
+function boxUV(geo, tile, seed) {
+  const pos = geo.attributes.position, nor = geo.attributes.normal;
+  const uv = new Float32Array(pos.count * 2);
+  const ou = (seed * 0.6180339) % 1, ov = (seed * 0.3710297) % 1;
+  for (let i = 0; i < pos.count; i++) {
+    const ax = Math.abs(nor.getX(i)), ay = Math.abs(nor.getY(i)), az = Math.abs(nor.getZ(i));
+    let u, v;
+    if (ay >= ax && ay >= az) { u = pos.getZ(i); v = pos.getX(i); }   // top and bottom: grain left to right
+    else if (ax >= az)        { u = pos.getZ(i); v = pos.getY(i); }   // sides: grain vertical
+    else                      { u = pos.getX(i); v = pos.getY(i); }   // front and back: grain vertical
+    uv[2 * i] = u / tile + ou; uv[2 * i + 1] = v / tile + ov;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
 
 // Helper: a box given its min/max extents (metres), so the layout reads like a drawing.
 // Edges are rounded (up to 4 mm) so they catch highlights; thin parts get a proportionally smaller radius.
@@ -796,8 +854,14 @@ function rebuild() {
   }
   const P = toModelUnits(params);
   current = build(P);
+  let seed = 1;
+  current.piano.traverse(o => {
+    const tile = o.isMesh && UV_TILE.get(o.material);
+    if (tile) boxUV(o.geometry, tile, seed++);
+  });
   scene.add(current.piano);
   applyShelf(shelfSel.value);
+  pt.dirty = true;
   const report = measure(P, current.m);
   renderReport(report);
   window.piano = { ...window.piano, ...current, params, report };
@@ -812,34 +876,80 @@ function applyShelf(v) {
   if (!current) return;
   current.phone.visible = v === 'phone'; current.tablet.visible = v === 'tablet'; current.music.visible = v === 'music';
 }
-shelfSel.addEventListener('change', () => applyShelf(shelfSel.value));
+shelfSel.addEventListener('change', () => { applyShelf(shelfSel.value); pt.dirty = true; });
 
 const xray = document.getElementById('xray');
 xray.addEventListener('change', () => {
   for (const m of Object.values(skin)) { m.opacity = xray.checked ? 0.12 : 1; m.depthWrite = !xray.checked; }
+  pt.dirty = true;
 });
-// Finish: recolours the cabinet wood, inner wood and grille fabric together.
+// Finish: sets the cabinet wood, inner wood and grille fabric together.
+// Colours multiply the textures (white shows the texture as photographed). The fabric photo is dark,
+// so its tint is given in linear RGB and may go above 1.
 const FINISHES = {
-  // Satin walnut: softer clear coat.
-  walnut: { wood: 0x5b3220, woodRough: 0.45, coat: 0.6, coatRough: 0.15, woodDark: 0x3f2215, fabric: 0x6e5a48 },
-  // Polished ebony: full mirror-like clear coat over a slightly soft black base.
-  black:  { wood: 0x0b0b0c, woodRough: 0.35, coat: 1.0, coatRough: 0.04, woodDark: 0x060606, fabric: 0x1a1a1b },
+  // Satin walnut veneer under a softer clear coat.
+  walnut: { grain: true, wood: 0xffffff, woodRough: 0.8, coat: 0.6, coatRough: 0.15, woodDark: 0x9a8a7c, fabric: [1.5, 0.98, 0.61] },
+  // Polished ebony: no visible grain, a full mirror-like clear coat over a slightly soft black base.
+  black:  { grain: false, wood: 0x0b0b0c, woodRough: 0.35, coat: 1.0, coatRough: 0.04, woodDark: 0x060606, fabric: [0.12, 0.12, 0.125] },
 };
+function setWoodMaps(m, on) {
+  m.map = on ? TEX.wood.map : null;
+  m.normalMap = on ? TEX.wood.normalMap : null;
+  m.roughnessMap = on ? TEX.wood.roughnessMap : null;
+  m.needsUpdate = true;
+}
 function applyFinish(name) {
   const f = FINISHES[name];
   for (const m of [mat.wood, skin.wood]) {
+    setWoodMaps(m, f.grain);
     m.color.setHex(f.wood); m.roughness = f.woodRough;
     m.clearcoat = f.coat; m.clearcoatRoughness = f.coatRough;
   }
+  setWoodMaps(mat.woodDark, f.grain);
   mat.woodDark.color.setHex(f.woodDark);
-  skin.fabric.color.setHex(f.fabric);
+  skin.fabric.color.setRGB(...f.fabric);
+  pt.dirty = true;
 }
 const finishSel = document.getElementById('finish');
 finishSel.addEventListener('change', () => applyFinish(finishSel.value));
 applyFinish(finishSel.value);
 
 const wallBox = document.getElementById('wall');
-wallBox.addEventListener('change', () => { wall.visible = wallBox.checked; });
+wallBox.addEventListener('change', () => { wall.visible = wallBox.checked; pt.dirty = true; });
+
+// ---------- Path-traced still ----------
+// Off: the normal real-time view. On: three-gpu-pathtracer refines the same scene sample by sample
+// (soft shadows, true reflections, light bouncing between surfaces). Orbiting restarts it.
+const PT_MAX_SAMPLES = 2000;
+const ptBox = document.getElementById('pathtrace');
+const ptBar = document.getElementById('ptbar');
+const ptStatus = document.getElementById('ptstatus');
+ptBox.addEventListener('change', () => {
+  pt.on = ptBox.checked;
+  ptBar.hidden = !pt.on;
+  if (pt.on && !pt.tracer) {
+    pt.tracer = new WebGLPathTracer(renderer);
+    pt.tracer.tiles.set(2, 2);
+    pt.tracer.bounces = 6;
+    pt.tracer.filterGlossyFactor = 0.5;
+    pt.tracer.renderDelay = 0;
+    pt.tracer.fadeDuration = 0;
+    pt.tracer.minSamples = 1;
+    window.piano.pt = pt;
+  }
+  pt.dirty = true;
+});
+document.getElementById('ptsave').addEventListener('click', () => {
+  // Draw once more and read the canvas in the same task, before the browser clears it.
+  pt.tracer.renderSample();
+  renderer.domElement.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `piano-cabinet-${Math.floor(pt.tracer.samples)}spp.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+});
 
 // ---------- Slider panel ----------
 const toastEl = document.getElementById('toast');
@@ -930,8 +1040,17 @@ addEventListener('resize', () => {
 });
 renderer.setAnimationLoop(() => {
   if (dirty) { dirty = false; rebuild(); }
-  controls.update();
-  renderer.render(scene, camera);
+  const moved = controls.update();
+  if (pt.on) {
+    const t = pt.tracer;
+    if (pt.dirty) { pt.dirty = false; t.setScene(scene, camera); }
+    else if (moved) t.updateCamera();
+    t.pausePathTracing = t.samples >= PT_MAX_SAMPLES;
+    t.renderSample();
+    ptStatus.textContent = t.isCompiling ? 'Compiling…' : `${Math.floor(t.samples)} / ${PT_MAX_SAMPLES} samples`;
+  } else {
+    renderer.render(scene, camera);
+  }
 });
 </script>
 </body>

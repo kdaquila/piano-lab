@@ -30,6 +30,7 @@ A piece of living-room furniture that looks like an upright piano. Inside it are
 - **Show wall:** shows or hides the wall behind the piano.
 - **Finish:** walnut or polished black.
 - **On the shelf:** nothing, a phone, a tablet or sheet music. The phone and tablet show a mock-up of a piano plugin screen.
+- **Path-traced still:** switches from the real-time view to a path tracer, which refines the same view sample by sample, with soft shadows, true reflections and light bouncing between surfaces. *Save PNG* downloads the current image. Orbiting or changing anything starts it over.
 
 ### Parametric: every dimension is a slider
 The model is built entirely from named parameters, so it can be tweaked without touching the code. The way of working: Claude builds the geometry from reference photos or descriptions, and the owner fine-tunes it with the sliders.
@@ -40,6 +41,23 @@ The model is built entirely from named parameters, so it can be tweaked without 
 
 The defaults in the file are the current design. To adopt a set of tweaks, paste the changed values to Claude, who commits them as the new defaults.
 
-To open it, open the file in a browser. If your browser blocks it when opened as a local file, serve the `docs/hardware` folder with any static file server and open the page from there.
+### Materials and light
+The wood, floor, speaker fabric and brass use photographed textures (colour, surface bumps and glossiness), mapped at their real size, and the room light and reflections come from an HDRI photo of a living room. The black finish is plain polished lacquer, with no visible grain.
 
-It loads **three.js 0.170.0** from the jsDelivr CDN, pinned to that exact version, so it needs an internet connection. It's a design sketch, not part of piano-lab: nothing builds or tests it.
+The first switch to the path tracer compiles a large shader, which takes from a few seconds to a couple of minutes depending on the graphics card (about 1½ minutes on integrated Intel graphics). After that, a few hundred samples give a clean image.
+
+### Textures
+All in [textures/](textures/), all **CC0** (public domain, no attribution needed; listed here anyway). The ambientCG maps were re-encoded smaller.
+
+| Files | Used for | Source |
+|---|---|---|
+| `wood_table_001_*_2k.jpg` | Walnut wood | [Wood Table 001](https://polyhaven.com/a/wood_table_001), Poly Haven |
+| `laminate_floor_02_*_1k.jpg` | Floor | [Laminate Floor 02](https://polyhaven.com/a/laminate_floor_02), Poly Haven |
+| `fabric030_*_1k.jpg` | Speaker fabric | [Fabric 030](https://ambientcg.com/a/Fabric030), ambientCG |
+| `metal009_*_1k.jpg` | Brushed brass (bumps and glossiness; the colour is the material's) | [Metal 009](https://ambientcg.com/a/Metal009), ambientCG |
+| `lebombo_2k.exr` | Room light and reflections | [Lebombo](https://polyhaven.com/a/lebombo), Poly Haven |
+
+### Opening it
+The page loads its textures from the `textures` folder, which browsers block for pages opened as local files. Serve the `docs/hardware` folder with any static file server, for example `python -m http.server --directory docs/hardware`, and open `http://localhost:8000/cabinet-model.html`.
+
+It loads **three.js 0.187.0** and **three-gpu-pathtracer 0.0.28** (with **three-mesh-bvh 0.10.0**) from the jsDelivr CDN, pinned to those exact versions, so it needs an internet connection. It's a design sketch, not part of piano-lab: nothing builds or tests it.
