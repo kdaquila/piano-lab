@@ -154,6 +154,12 @@ HeldKeys heldKeys(const AudioLinks& links) noexcept {
             links.heldKeys[1].load(std::memory_order_relaxed)};
 }
 
+void timeBlock(AudioLinks& links, std::size_t samples, double sampleRate, double seconds) noexcept {
+    if (sampleRate > 0.0 && seconds > static_cast<double>(samples) / sampleRate) {
+        links.lateBlocks.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 float takePeak(AudioLinks& links) noexcept {
     return links.peak.exchange(0.0F, std::memory_order_relaxed);
 }

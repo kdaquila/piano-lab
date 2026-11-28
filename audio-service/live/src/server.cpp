@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -86,6 +87,7 @@ public:
             logging::warning(log, "{}", problem.message);
         }
         state.emplace(makeAudioState(validated.config));
+        sampleRate = device->getCurrentSampleRate();
         mono.assign(static_cast<std::size_t>(std::max(device->getCurrentBufferSizeSamples(), 1)),
                     0.0F);
         const int blockSize = device->getCurrentBufferSizeSamples();
@@ -110,6 +112,7 @@ public:
             }
             return;
         }
+        const auto started = std::chrono::steady_clock::now();
         // A device may hand over more than it said it would; render in pieces that fit.
         for (std::size_t start = 0; start < samples; start += mono.size()) {
             const std::span block(mono.data(), std::min(mono.size(), samples - start));
@@ -120,6 +123,8 @@ public:
                 }
             }
         }
+        const std::chrono::duration<double> took = std::chrono::steady_clock::now() - started;
+        timeBlock(links, samples, sampleRate, took.count());
     }
 
     /// The device has stopped; nothing to do.
@@ -132,6 +137,7 @@ private:
     const logging::Log& log;
     std::optional<AudioState> state; ///< built when the device starts
     std::vector<float> mono;         ///< the engine's mono output for one block
+    double sampleRate = 0.0;         ///< the device's, in hertz, for timing blocks
 };
 
 /// Passes one MIDI input's messages to the audio core, on that input's thread.
@@ -429,6 +435,12 @@ pipe::Status status(Live& live) {
     }
     status.midiInputs = live.rig->midi.names;
     status.recording = live.rig->recorder->recording();
+    status.lateBlocks = live.rig->links->lateBlocks.load(std::memory_order_relaxed);
+    if (auto* device = live.manager.getCurrentAudioDevice()) {
+        if (const int xruns = device->getXRunCount(); xruns >= 0) {
+            status.driverXruns = xruns;
+        }
+    }
     return status;
 }
 

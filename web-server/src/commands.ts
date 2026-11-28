@@ -61,6 +61,7 @@ export function describeStatus(status: Status): string {
                 : `audio: ${audio.audioOutput} (${audio.audioType}), ${audio.sampleRate} Hz, ${audio.bufferSize}-sample blocks`,
             `MIDI: ${audio.midiInputs.length === 0 ? 'no inputs open' : audio.midiInputs.join(', ')}`,
             `recording: ${audio.recording ? 'yes' : 'no'}`,
+            `glitches: ${audio.lateBlocks} late block${audio.lateBlocks === 1 ? '' : 's'}${audio.driverXruns === undefined ? '' : `, ${audio.driverXruns} counted by the driver`}`,
         );
     }
     return lines.join('\n');

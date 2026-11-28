@@ -26,7 +26,8 @@
         "typecheck": "tsc -p scripts",
         "start": "node scripts/web/start.ts",
         "start:audio": "node scripts/audio/start.ts",
-        "render": "node scripts/audio/render.ts"
+        "render": "node scripts/audio/render.ts",
+        "acceptance": "node scripts/web/acceptance.ts"
     },
     "devDependencies": {
         "@types/node": "24.19.4",

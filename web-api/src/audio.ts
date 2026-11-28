@@ -34,6 +34,13 @@ export const AudioStatus = Type.Object({
     midiInputs: Type.Array(Type.String()),
     /** True while recording the output. */
     recording: Type.Boolean(),
+    /**
+     * Blocks the audio thread took longer to render than they last, since the device opened:
+     * each one almost certainly an audible glitch.
+     */
+    lateBlocks: Type.Integer({ minimum: 0 }),
+    /** Glitches the audio driver itself counted since the device opened, when it counts them. */
+    driverXruns: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type AudioStatus = Type.Static<typeof AudioStatus>;
 

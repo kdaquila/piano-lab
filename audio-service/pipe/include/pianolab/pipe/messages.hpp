@@ -138,6 +138,12 @@ struct Status {
     int bufferSize = 0;                  ///< in samples; 0 when no device is open
     std::vector<std::string> midiInputs; ///< the MIDI inputs that are open
     bool recording = false;
+    /// Blocks the audio thread took longer to render than they last, since the device opened:
+    /// each one almost certainly an audible glitch.
+    std::uint64_t lateBlocks = 0;
+    /// Glitches the audio driver itself counted, since the device opened; left out when the
+    /// driver doesn't count them.
+    std::optional<int> driverXruns;
 };
 
 /// The reply to `recording.start`.

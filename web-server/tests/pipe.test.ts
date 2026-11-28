@@ -102,6 +102,8 @@ describe('checkResult', () => {
             bufferSize: 480,
             midiInputs: [],
             recording: false,
+            lateBlocks: 0,
+            driverXruns: 0,
         };
         expect(checkResult('status', status)).toEqual({ ok: true, value: status });
 

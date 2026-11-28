@@ -440,3 +440,16 @@ TEST_CASE("the peak is the loudest sample since it was last taken") {
     CHECK(live::takePeak(*links) == loudest);
     CHECK(live::takePeak(*links) == 0.0F); // taken
 }
+
+TEST_CASE("a block counts as late only when rendering it took longer than it lasts") {
+    auto links = live::makeAudioLinks(1);
+    // 480 samples at 48 kHz last 10 ms.
+    live::timeBlock(*links, 480, 48'000.0, 0.002);
+    live::timeBlock(*links, 480, 48'000.0, 0.010);
+    CHECK(links->lateBlocks.load() == 0);
+    live::timeBlock(*links, 480, 48'000.0, 0.0101);
+    live::timeBlock(*links, 480, 48'000.0, 0.5);
+    CHECK(links->lateBlocks.load() == 2);
+    live::timeBlock(*links, 480, 0.0, 1.0); // no sample rate yet: nothing to compare with
+    CHECK(links->lateBlocks.load() == 2);
+}

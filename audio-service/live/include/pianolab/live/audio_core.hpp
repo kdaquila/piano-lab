@@ -76,7 +76,15 @@ struct AudioLinks {
     /// The loudest output sample since the main thread last took it (`takePeak`), as an
     /// absolute value. Raised by audio every block.
     std::atomic<float> peak{0.0F};
+    /// Blocks that took the audio thread longer to render than they last (`timeBlock`): each
+    /// one is almost certainly an audible glitch. Raised by audio; read by anyone.
+    std::atomic<std::uint64_t> lateBlocks{0};
 };
+
+/// On the audio thread, after a block of `samples` samples at `sampleRate` hertz that took
+/// `seconds` to render: counts it in `AudioLinks::lateBlocks` when that's longer than the block
+/// lasts. Never blocks or allocates.
+void timeBlock(AudioLinks& links, std::size_t samples, double sampleRate, double seconds) noexcept;
 
 /// The keys held down as the audio thread last published them (see `AudioLinks::heldKeys`).
 [[nodiscard]] HeldKeys heldKeys(const AudioLinks& links) noexcept;

@@ -73,6 +73,7 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 | `npm run lint` | Runs clang-tidy on every C++ file, and oxlint on the TypeScript |
 | `npm run check` | The quality gate (below) |
 | `npm start` | Builds, then runs piano-lab: the web server and the audio service (see [Playing the piano](#playing-the-piano)) |
+| `npm run acceptance` | Builds, then runs the end-to-end checks against the real audio service (needs a sound device; plays quiet tones) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
 Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), and `npm run build:web` just the TypeScript (the web server and the web API, compiled to their `dist/` folders). The web UI joins with its own `:ui` commands in step 0.7.

@@ -20,6 +20,7 @@ const status = {
     bufferSize: 480,
     midiInputs: [],
     recording: false,
+    lateBlocks: 0,
 };
 let settings: Record<string, unknown> = { 'sine.gain': 0.25, 'tuning.a4Hz': 440 };
 

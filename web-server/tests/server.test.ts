@@ -318,6 +318,7 @@ describe('the piano-lab command', () => {
                 'audio: Speakers (Windows Audio), 48000 Hz, 480-sample blocks',
                 'MIDI: no inputs open',
                 'recording: no',
+                'glitches: 0 late blocks',
             ].join('\n'),
             err: '',
         });

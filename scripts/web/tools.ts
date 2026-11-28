@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { exec, repoRoot, stage } from '../lib/run.ts';
 
 /** Runs an npm-installed tool's command-line script, from `node_modules/<path>`. */
-function tool(path: string, args: readonly string[]): Promise<void> {
+export function tool(path: string, args: readonly string[]): Promise<void> {
     return exec(process.execPath, [join(repoRoot, 'node_modules', path), ...args], {
         env: process.env,
     });
@@ -21,6 +21,7 @@ export function typecheckTests(): Promise<void> {
     return stage('Type check the tests (tsc)', async () => {
         await tool('typescript/bin/tsc', ['-p', 'web-api/tests']);
         await tool('typescript/bin/tsc', ['-p', 'web-server/tests']);
+        await tool('typescript/bin/tsc', ['-p', 'web-server/acceptance']);
     });
 }
 
