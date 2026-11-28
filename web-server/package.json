@@ -5,6 +5,9 @@
     "description": "piano-lab's web server: serves the web UI and the web API, and runs the audio service.",
     "license": "MIT",
     "type": "module",
+    "bin": {
+        "piano-lab": "bin/piano-lab.js"
+    },
     "dependencies": {
         "@fastify/type-provider-typebox": "6.3.0",
         "@fastify/websocket": "11.3.7",

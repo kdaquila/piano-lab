@@ -4,13 +4,14 @@
 
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
-import type { AddressInfo } from 'node:net';
+import { createServer, type AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import type { Event } from '@piano-lab/web-api';
 import { AudioService } from '../src/audio-service.ts';
 import { LiveHub } from '../src/live.ts';
+import { describeStatus, runCli } from '../src/commands.ts';
 import { allowedHost, allowedOrigin, buildServer } from '../src/server.ts';
 
 const log = { info: () => {}, warn: () => {}, error: () => {} };
@@ -290,5 +291,79 @@ describe('the WebSocket', () => {
         expect(other.events.some((e) => e.type === 'error')).toBe(false);
         sender.socket.close();
         other.socket.close();
+    });
+});
+
+describe('the piano-lab command', () => {
+    /** Runs `piano-lab <args>` against the test server, with what it printed. */
+    async function piano(...args: string[]): Promise<{ code: number; out: string; err: string }> {
+        const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            const code = await runCli(args, port);
+            const text = (spy: typeof out) =>
+                spy.mock.calls.map((printed) => printed.join(' ')).join('\n');
+            return { code, out: text(out), err: text(err) };
+        } finally {
+            out.mockRestore();
+            err.mockRestore();
+        }
+    }
+
+    it('shows the status', async () => {
+        expect(await piano('status')).toEqual({
+            code: 0,
+            out: [
+                'piano-lab 9.9.9: the audio service is running',
+                'audio: Speakers (Windows Audio), 48000 Hz, 480-sample blocks',
+                'MIDI: no inputs open',
+                'recording: no',
+            ].join('\n'),
+            err: '',
+        });
+        expect(describeStatus({ version: '1.0.0', audioService: 'restarting', audio: null })).toBe(
+            'piano-lab 1.0.0: the audio service is restarting',
+        );
+    });
+
+    it('stops piano-lab', async () => {
+        const before = stops;
+        expect(await piano('stop')).toMatchObject({ code: 0, out: 'piano-lab is stopping' });
+        await until(() => stops === before + 1);
+    });
+
+    it('says when piano-lab isn’t running', async () => {
+        // A port that was free a moment ago: nothing answers there.
+        const probe = createServer();
+        await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+        const free = (probe.address() as AddressInfo).port;
+        await new Promise((resolve) => probe.close(resolve));
+
+        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+            expect(await runCli(['status'], free)).toBe(1);
+            expect(err).toHaveBeenCalledWith("piano-lab isn't running");
+            expect(await runCli(['stop'], free)).toBe(0);
+            expect(out).toHaveBeenCalledWith("piano-lab isn't running");
+        } finally {
+            err.mockRestore();
+            out.mockRestore();
+        }
+    });
+
+    it('refuses unknown commands and stray arguments', async () => {
+        expect(await piano('bogus')).toMatchObject({
+            code: 1,
+            err: expect.stringContaining("unknown command 'bogus'"),
+        });
+        expect(await piano('status', 'now')).toMatchObject({
+            code: 1,
+            err: expect.stringContaining("'status' takes no arguments"),
+        });
+        expect(await piano('help')).toMatchObject({
+            code: 0,
+            out: expect.stringContaining('usage: piano-lab'),
+        });
     });
 });

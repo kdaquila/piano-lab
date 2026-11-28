@@ -24,7 +24,7 @@
         "check:audio": "node scripts/audio/check.ts",
         "check:web": "node scripts/web/check.ts",
         "typecheck": "tsc -p scripts",
-        "start": "run-s start:*",
+        "start": "node scripts/web/start.ts",
         "start:audio": "node scripts/audio/start.ts",
         "render": "node scripts/audio/render.ts"
     },

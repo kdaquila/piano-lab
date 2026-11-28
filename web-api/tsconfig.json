@@ -5,6 +5,8 @@
         "composite": true,
         "rootDir": "src",
         "outDir": "dist",
+        // Kept with the output, so deleting dist/ means a full rebuild.
+        "tsBuildInfoFile": "dist/.tsbuildinfo",
         "declaration": true,
         "sourceMap": true
     },

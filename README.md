@@ -72,7 +72,7 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 | `npm run format` | Reformats the C++ with clang-format, and the TypeScript with oxfmt |
 | `npm run lint` | Runs clang-tidy on every C++ file, and oxlint on the TypeScript |
 | `npm run check` | The quality gate (below) |
-| `npm start` | Builds, then plays the piano live (see [Playing the piano](#playing-the-piano)) |
+| `npm start` | Builds, then runs piano-lab: the web server and the audio service (see [Playing the piano](#playing-the-piano)) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
 Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), and `npm run build:web` just the TypeScript (the web server and the web API, compiled to their `dist/` folders). The web UI joins with its own `:ui` commands in step 0.7.
@@ -91,10 +91,19 @@ Plug in a MIDI keyboard, then build and start the piano:
 ```powershell
 npm start
 ```
-(The program itself is `.\build\dev\audio-service\app\piano-lab-audio.exe run`.)
-It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
+That builds both parts and runs `piano-lab start`: the web server, on `http://localhost:4440`, which runs the audio service. It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console; the audio service also logs to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
 
-It also takes commands on its input, one JSON line each: that's how piano-lab's web server drives it (arriving in step 0.6). You can type them too. For example, this shows what's open:
+From another terminal in the repository folder, `npx` runs the `piano-lab` command:
+```powershell
+npx piano-lab status
+```
+```powershell
+npx piano-lab stop
+```
+`npx piano-lab help` lists every command. The web API itself is described in [docs/web-api.md](docs/web-api.md); for example, `curl http://localhost:4440/api/v0/status` shows the same status as JSON.
+
+### Talking to the audio service directly
+For debugging, `npm run start:audio` runs the audio service alone (the program is `.\build\dev\audio-service\app\piano-lab-audio.exe run`). It takes commands on its input, one JSON line each, the same ones the web server sends. For example, this shows what's open:
 ```json
 {"jsonrpc":"2.0","id":1,"method":"status"}
 ```
@@ -112,7 +121,7 @@ inputs = ["Digital Piano"]
 ```
 By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano.
 
-piano-lab saves settings changed while it runs (from the app, or with a `settings.set` command) back to this file, a second after the last change. So edit the file while piano-lab is stopped. If the file holds anything piano-lab didn't write, such as your own comments, it's first copied to `settings.toml.bak`.
+piano-lab saves settings changed while it runs (from the app, or through the web API) back to this file, a second after the last change. So edit the file while piano-lab is stopped. If the file holds anything piano-lab didn't write, such as your own comments, it's first copied to `settings.toml.bak`.
 
 ## Rendering a music file to WAV
 `piano-lab render` plays a MIDI file or MusicXML score (for example, exported from MuseScore) through the piano engine and writes a WAV file, with no audio device:

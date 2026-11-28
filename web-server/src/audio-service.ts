@@ -91,17 +91,23 @@ export class AudioServiceError extends Error {
 const repoRoot = join(import.meta.dirname, '..', '..');
 
 /**
- * The command that runs the audio service: `piano-lab-audio run`, found from the web server's
- * own location. In the repository that's the dev build; a shipped piano-lab will add its
- * platform package here. Returns why when there's none.
+ * The audio service's program, `piano-lab-audio`, found from the web server's own location. In
+ * the repository that's the dev build; a shipped piano-lab will add its platform package here.
+ * Returns why when there's none.
  */
-export function audioServiceCommand(): Command | { problem: string } {
+export function audioServiceProgram(): { file: string } | { problem: string } {
     const program = process.platform === 'win32' ? 'piano-lab-audio.exe' : 'piano-lab-audio';
     const devBuild = join(repoRoot, 'build', 'dev', 'audio-service', 'app', program);
     if (existsSync(devBuild)) {
-        return { file: devBuild, args: ['run'] };
+        return { file: devBuild };
     }
     return { problem: `the audio service isn't built (looked for ${devBuild}); run npm run build` };
+}
+
+/** The command that runs the audio service live: `piano-lab-audio run`, or why there's none. */
+export function audioServiceCommand(): Command | { problem: string } {
+    const program = audioServiceProgram();
+    return 'problem' in program ? program : { file: program.file, args: ['run'] };
 }
 
 /** What the audio service is doing: the web API's `ServiceState`, or stopped for good. */
@@ -274,7 +280,13 @@ export class AudioService {
     /** Runs the program, and wires its output and its exit. */
     #spawn(): void {
         const { file, args } = this.#options.command;
-        const child = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+        // Detached, in its own process group (and, on Windows, its own hidden console), so Ctrl+C
+        // in the terminal reaches only the web server, which then stops it in order (`stop`).
+        const child = spawn(file, args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+            detached: true,
+        });
         this.#child = child;
         this.#startedAt = Date.now();
         this.#stderrTail = [];
