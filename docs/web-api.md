@@ -2,7 +2,7 @@
 
 piano-lab's web API is how every client talks to the piano, piano-lab's own web UI included. It's public and versioned, and written for other people's frontends, scripts and AI tools. Its schemas live in [`web-api/`](../web-api/src) as TypeBox definitions; this page describes them in prose.
 
-- **Where:** `http://localhost:4440`, while piano-lab runs (`npm start`, or `piano-lab start`). It answers on this computer only.
+- **Where:** `http://localhost:4440`, while piano-lab runs (`npm start`, or `piano-lab start`). It answers on this computer only. piano-lab's own web UI is served from the same address, at `/`.
 - **Two halves:** JSON over HTTP for everything that waits for its own answer, and one WebSocket for live traffic (notes, live setting changes, and events sent to every client).
 - **Version:** every path starts with `/api/v0`. A breaking change gets a new version, `/api/v1`, and both can be served side by side. v0 may still change while piano-lab is in its first milestones.
 
@@ -144,7 +144,7 @@ On one connection, commands are carried out in the order they're sent. If the au
 | `settings` | `values` (every setting) | On connecting, and after any change, from any client |
 | `keys` | `keys` (MIDI note numbers held down, lowest first) | On connecting, and whenever they change, from any source: a MIDI keyboard or a client |
 | `level` | `peak` (the loudest sample since the last one, 0 to 1; more when clipping) | About 30 times a second while anything sounds, then one `0` |
-| `log` | `level` (`info`, `warning` or `error`), `message` | A line from piano-lab's log, e.g. a device that couldn't be opened |
+| `log` | `level` (`info`, `warning` or `error`), `message`, `at` (when it was logged, in milliseconds since 1970, UTC) | A line from piano-lab's log, e.g. a device that couldn't be opened. On connecting, the last 100 lines come first, so a client hears about problems from before it connected |
 | `error` | `message` | To one client only: a command it sent was invalid, or refused by the piano |
 
 A client that falls behind skips `level` events until it catches up; every other event is always sent.
