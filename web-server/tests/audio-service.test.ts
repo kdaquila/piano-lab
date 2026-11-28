@@ -64,7 +64,7 @@ describe('AudioService', () => {
     it('starts, answers requests, and passes events on', async () => {
         const { service, events, versions } = fake('normal');
         await service.start();
-        expect(service.ready).toBe(true);
+        expect(service.state).toBe('running');
         expect(versions).toEqual(['0.0.0-test']);
         expect(events[0]).toEqual({ event: 'log', params: { level: 'info', message: 'starting' } });
 
@@ -108,7 +108,7 @@ describe('AudioService', () => {
     it('times out requests and a start that never gets ready', async () => {
         const { service } = fake('silent', { readyTimeoutMs: 200 });
         await expect(service.start()).rejects.toMatchObject({ kind: 'timeout' });
-        expect(service.ready).toBe(false);
+        expect(service.state).toBe('starting');
         await expect(service.request('status', {})).rejects.toMatchObject({ kind: 'unavailable' });
         expect(service.notify('note.off', { key: 60 })).toBe(false);
     });
@@ -130,7 +130,7 @@ describe('AudioService', () => {
         const { service, log, events } = fake('normal');
         await service.start();
         await service.stop();
-        expect(service.ready).toBe(false);
+        expect(service.state).toBe('stopped');
         expect(events.at(-1)).toEqual({
             event: 'log',
             params: { level: 'info', message: 'stopped' },

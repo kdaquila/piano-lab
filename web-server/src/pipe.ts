@@ -8,7 +8,15 @@
 
 import { Type } from 'typebox';
 import { Compile } from 'typebox/compile';
-import { SettingInfo, SettingValues } from '@piano-lab/web-api';
+import {
+    AudioStatus,
+    Devices,
+    LogLevel,
+    RecordingStarted,
+    RecordingStopped,
+    SettingInfo,
+    SettingValues,
+} from '@piano-lab/web-api';
 
 /** The longest line read from the audio service, in characters. Longer lines are dropped whole. */
 export const maxLineLength = 1024 * 1024;
@@ -29,54 +37,6 @@ export const errorCode = {
 
 // --- Replies -----------------------------------------------------------------------------------
 
-/** One kind of audio device and its outputs. */
-const AudioDeviceList = Type.Object({
-    /** e.g. "Windows Audio" or "ASIO" */
-    type: Type.String(),
-    /** As the system names them. */
-    outputs: Type.Array(Type.String()),
-});
-
-/** The reply to `devices.list`: the audio outputs and MIDI inputs there are. */
-export const Devices = Type.Object({
-    audio: Type.Array(AudioDeviceList),
-    /** MIDI inputs, as the system names them. */
-    midi: Type.Array(Type.String()),
-});
-export type Devices = Type.Static<typeof Devices>;
-
-/** The reply to `status`: what the audio service has open. */
-export const Status = Type.Object({
-    /** The open device's type; empty when none is open. */
-    audioType: Type.String(),
-    /** The open output; empty when none is open. */
-    audioOutput: Type.String(),
-    /** In hertz; 0 when no device is open. */
-    sampleRate: Type.Number(),
-    /** In samples; 0 when no device is open. */
-    bufferSize: Type.Integer(),
-    /** The MIDI inputs that are open. */
-    midiInputs: Type.Array(Type.String()),
-    recording: Type.Boolean(),
-});
-export type Status = Type.Static<typeof Status>;
-
-/** The reply to `recording.start`. */
-export const RecordingStarted = Type.Object({
-    /** Where it's being written. */
-    file: Type.String(),
-});
-export type RecordingStarted = Type.Static<typeof RecordingStarted>;
-
-/** The reply to `recording.stop`. */
-export const RecordingStopped = Type.Object({
-    /** The finished file. */
-    file: Type.String(),
-    /** Its length, in seconds. */
-    seconds: Type.Number(),
-});
-export type RecordingStopped = Type.Static<typeof RecordingStopped>;
-
 /** No parameters. */
 const NoParams = Type.Object({}, { additionalProperties: false });
 
@@ -85,7 +45,7 @@ const NoParams = Type.Object({}, { additionalProperties: false });
  * parameters are the settings to change, and its result is every setting after the change.
  */
 export const requests = {
-    status: { params: NoParams, result: Status },
+    status: { params: NoParams, result: AudioStatus },
     'devices.list': { params: NoParams, result: Devices },
     'settings.get': { params: NoParams, result: SettingValues },
     'settings.schema': { params: NoParams, result: Type.Array(SettingInfo) },
@@ -142,12 +102,7 @@ export const events = {
     ready: Type.Object({ version: Type.String() }),
     /** A line for the log. */
     log: Type.Object({
-        level: Type.Union([
-            Type.Literal('debug'),
-            Type.Literal('info'),
-            Type.Literal('warning'),
-            Type.Literal('error'),
-        ]),
+        level: LogLevel,
         message: Type.String(),
     }),
     /** The keys held down changed: MIDI note numbers, lowest first. */

@@ -4,6 +4,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import type { ServiceState } from '@piano-lab/web-api';
 import { join } from 'node:path';
 import {
     LineSplitter,
@@ -103,6 +104,9 @@ export function audioServiceCommand(): Command | { problem: string } {
     return { problem: `the audio service isn't built (looked for ${devBuild}); run npm run build` };
 }
 
+/** What the audio service is doing: the web API's `ServiceState`, or stopped for good. */
+export type RunState = ServiceState | 'stopped';
+
 /** What `AudioService` needs. */
 export interface AudioServiceOptions {
     /** The program to run (see `audioServiceCommand`). */
@@ -112,6 +116,8 @@ export interface AudioServiceOptions {
     onEvent: (event: ServiceEvent) => void;
     /** Called each time the audio service is ready for requests, with its version. */
     onReady?: (version: string) => void;
+    /** Called whenever `state` changes. */
+    onStateChange?: (state: RunState) => void;
     /** Shorter timings, for tests. */
     timings?: Partial<Timings>;
 }
@@ -138,7 +144,7 @@ export class AudioService {
     readonly #options: AudioServiceOptions;
     readonly #timings: Timings;
     #child: ChildProcessWithoutNullStreams | undefined;
-    #ready = false;
+    #state: RunState = 'stopped';
     #stopping = false;
     #nextId = 1;
     readonly #pending = new Map<number, Pending>();
@@ -155,9 +161,17 @@ export class AudioService {
         this.#restartDelayMs = this.#timings.firstRestartDelayMs;
     }
 
-    /** True when it's running and ready for requests. */
-    get ready(): boolean {
-        return this.#ready;
+    /** What it's doing; requests are taken only while `running`. */
+    get state(): RunState {
+        return this.#state;
+    }
+
+    /** Sets `state`, telling `onStateChange` when it changed. */
+    #setState(state: RunState): void {
+        if (state !== this.#state) {
+            this.#state = state;
+            this.#options.onStateChange?.(state);
+        }
     }
 
     /**
@@ -166,6 +180,7 @@ export class AudioService {
      */
     start(): Promise<void> {
         this.#stopping = false;
+        this.#setState('starting');
         const ready = this.#nextReady();
         this.#spawn();
         return ready;
@@ -177,7 +192,7 @@ export class AudioService {
         params: RequestParams<M>,
     ): Promise<RequestResult<M>> {
         const child = this.#child;
-        if (!this.#ready || child === undefined) {
+        if (this.#state !== 'running' || child === undefined) {
             return Promise.reject(
                 new AudioServiceError('unavailable', "the audio service isn't running right now"),
             );
@@ -205,7 +220,7 @@ export class AudioService {
      * service isn't ready.
      */
     notify<M extends NotificationMethod>(method: M, params: NotificationParams<M>): boolean {
-        if (!this.#ready || this.#child === undefined) {
+        if (this.#state !== 'running' || this.#child === undefined) {
             return false;
         }
         this.#child.stdin.write(notificationLine(method, params));
@@ -221,8 +236,10 @@ export class AudioService {
         clearTimeout(this.#restartTimer);
         const child = this.#child;
         if (child === undefined) {
+            this.#setState('stopped');
             return;
         }
+        this.#setState('stopping');
         this.#markUnavailable('the audio service is stopping');
         child.stdin.end();
         const timer = setTimeout(() => {
@@ -349,7 +366,7 @@ export class AudioService {
 
     /** The audio service is ready for requests. */
     #onReady(version: string): void {
-        this.#ready = true;
+        this.#setState('running');
         this.#options.log.info(`the audio service ${version} is ready`);
         for (const waiter of this.#readyWaiters.splice(0)) {
             waiter.resolve();
@@ -359,7 +376,6 @@ export class AudioService {
 
     /** Fails every waiting request and `ready` waiter with `message`. */
     #markUnavailable(message: string): void {
-        this.#ready = false;
         for (const id of this.#pending.keys()) {
             this.#take(id)?.reject(new AudioServiceError('unavailable', message));
         }
@@ -373,9 +389,11 @@ export class AudioService {
         const how = signal === null ? `with exit code ${code}` : `by signal ${signal}`;
         if (this.#stopping) {
             this.#markUnavailable('the audio service has stopped');
+            this.#setState('stopped');
             this.#options.log.info(`the audio service stopped ${how}`);
             return;
         }
+        this.#setState('restarting');
         this.#markUnavailable('the audio service stopped; restarting it');
         const ranMs = Date.now() - this.#startedAt;
         if (ranMs >= this.#timings.steadyRunMs) {
