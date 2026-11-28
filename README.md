@@ -13,18 +13,22 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 
 | Folder | What's in it |
 |---|---|
-| `engine/` | **The engine:** the piano's physics and real-time plumbing, in standard C++ only. Never depends on JUCE, networking or UI code (enforced by the build). |
-| `engine/engine-core` | Key models, the 88-key keyboard, note events and performances (what's played), offline rendering, tuning |
-| `engine/models` | Physical models: strings, hammers, bridge, soundboard |
-| `engine/calibration` | Fitting model parameters to measurements and listening tests |
-| `engine/rt` | Real-time plumbing shared with the backend, such as lock-free queues |
-| `backend/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network. Step 0.6 renames the folders to say what each part does (`sound-engine/`, `audio-service/`, `web-ui/`) and adds the TypeScript `web-server/` and `web-api/`. |
-| `backend/app` | `piano-lab`, the one program. Its subcommands are its roles: `render` and `server start` |
-| `backend/server` | The live piano: the audio core (lock-free queues, the per-block audio work, recording) and JUCE's audio and MIDI devices |
-| `backend/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
-| `backend/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
-| `backend/logging` | The backend's log (console and file), with spdlog behind our own small interface |
-| `ui/` | **The UI:** a touch-first React web app (from step 0.7) |
+| `sound-engine/` | **The sound engine:** the piano's physics and real-time plumbing, in standard C++ only. Never depends on JUCE, networking or UI code (enforced by the build). |
+| `sound-engine/engine-core` | Key models, the 88-key keyboard, note events and performances (what's played), offline rendering, tuning |
+| `sound-engine/models` | Physical models: strings, hammers, bridge, soundboard |
+| `sound-engine/calibration` | Fitting model parameters to measurements and listening tests |
+| `sound-engine/rt` | Real-time plumbing shared with the audio service, such as lock-free queues |
+| `audio-service/` | **The audio service:** the C++ program that runs the engine. Audio devices, MIDI and music files through [JUCE](https://juce.com), settings and recording. It never touches the network: from step 0.6 the TypeScript web server (`web-server/`) drives it. |
+| `audio-service/app` | `piano-lab-audio`, the audio service's program. Its subcommands are its roles: `run` (started by the web server) and `render` |
+| `audio-service/live` | The live piano: the audio core (lock-free queues, the per-block audio work, recording), JUCE's audio and MIDI devices, and answering the web server's commands |
+| `audio-service/render` | Rendering a music file to WAV with no audio device. A test and research tool, built for AI agents |
+| `audio-service/music-io` | Reading MIDI and MusicXML files into the engine's music type, and writing WAV files |
+| `audio-service/logging` | The audio service's log (console and file), with spdlog behind our own small interface |
+| `audio-service/settings` | `settings.toml`: reading it, describing and changing settings by name, and saving it, all from the settings' field tables |
+| `audio-service/pipe` | The service pipe's messages (JSON-RPC 2.0, one per line), read and written with Glaze |
+| `web-server/` | **The web server:** TypeScript on Node. Serves the web UI and the web API on `http://localhost:4440`, and runs the audio service, talking to it over the service pipe (being built in step 0.6) |
+| `web-api/` | **The web API:** its TypeBox schemas, shared by the web server and the web UI |
+| `web-ui/` | **The web UI:** a touch-first React app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
 | `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
@@ -51,7 +55,7 @@ You need:
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
 - Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `npm run check` is what enforces formatting. Visual Studio stays available as a debugger.
 
-Then, in the repository folder, install the developer tools that come from npm (TypeScript, and npm-run-all2 for running every part's tasks):
+Then, in the repository folder, install the web server's packages and the developer tools that come from npm (TypeScript, Vitest, oxlint, oxfmt, and npm-run-all2 for running every part's tasks). Packages' install scripts never run (`.npmrc`):
 ```powershell
 npm install
 ```
@@ -65,33 +69,48 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 |---|---|
 | `npm run build` | Builds the debug preset (configuring first when needed) |
 | `npm test` | Builds, then runs the tests |
-| `npm run format` | Reformats the C++ files with clang-format |
-| `npm run lint` | Runs clang-tidy on every C++ file |
+| `npm run format` | Reformats the C++ with clang-format, and the TypeScript with oxfmt |
+| `npm run lint` | Runs clang-tidy on every C++ file, and oxlint on the TypeScript |
 | `npm run check` | The quality gate (below) |
-| `npm start` | Builds, then plays the piano live (see [Playing the piano](#playing-the-piano)) |
+| `npm start` | Builds, then runs piano-lab: the web server and the audio service (see [Playing the piano](#playing-the-piano)) |
+| `npm run acceptance` | Builds, then runs the end-to-end checks against the real audio service (needs a sound device; plays quiet tones) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
-Each one runs every part of the project. To run one part only, add its name: `npm run build:server` builds just the server (the C++ engine and backend). Today the server is the only part; the UI joins in a later step with its own `:ui` commands, which the plain commands then run too.
+Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), and `npm run build:web` just the TypeScript (the web server and the web API, compiled to their `dist/` folders). The web UI joins with its own `:ui` commands in step 0.7.
 
-`build:server` and `test:server` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (engine and tests under AddressSanitizer, built without JUCE). For example `npm run test:server -- release`. Output goes to `build/<preset>/`.
+`build:audio` and `test:audio` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (the sound engine and its tests under AddressSanitizer, built without JUCE). For example `npm run test:audio -- release`. Output goes to `build/<preset>/`.
 
 ### The quality check
-One command runs everything: a type check of the task scripts, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
+One command runs everything: a type check of the task scripts; for the C++, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests; for the TypeScript, formatting, the build, the tests and oxlint. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
 ```powershell
 npm run check
 ```
 If it reports badly formatted files, `npm run format` fixes them.
 
 ## Playing the piano
-Plug in a MIDI keyboard, then build and start the server:
+Plug in a MIDI keyboard, then build and start the piano:
 ```powershell
 npm start
 ```
-(The program itself is `.\build\dev\backend\app\piano-lab.exe server start`.)
-It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console and logged to `logs\piano-lab.log` next to `piano-lab.exe`.
+That builds both parts and runs `piano-lab start`: the web server, on `http://localhost:4440`, which runs the audio service. It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console; the audio service also logs to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
+
+From another terminal in the repository folder, `npx` runs the `piano-lab` command:
+```powershell
+npx piano-lab status
+```
+```powershell
+npx piano-lab stop
+```
+`npx piano-lab help` lists every command. The web API itself is described in [docs/web-api.md](docs/web-api.md); for example, `curl.exe http://localhost:4440/api/v0/status` shows the same status as JSON.
+
+### Talking to the audio service directly
+For debugging, `npm run start:audio` runs the audio service alone (the program is `.\build\dev\audio-service\app\piano-lab-audio.exe run`). It takes commands on its input, one JSON line each, the same ones the web server sends. For example, this shows what's open:
+```json
+{"jsonrpc":"2.0","id":1,"method":"status"}
+```
 
 ### Settings
-Your settings live in `settings.toml`, next to `piano-lab.exe`. The first `server start` writes one listing every setting, commented out, with its description, range and built-in value: remove the `#` in front of a setting to change it. For example, to play through an ASIO interface from one keyboard:
+Your settings live in `settings.toml`, next to `piano-lab-audio.exe`. The first run writes one listing every setting, commented out, with its description, range and built-in value: remove the `#` in front of a setting to change it. For example, to play through an ASIO interface from one keyboard:
 ```toml
 [audio]
 type = "ASIO"
@@ -101,18 +120,20 @@ bufferSize = 128
 [midi]
 inputs = ["Digital Piano"]
 ```
-By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano. Restart the server after changing the file.
+By default the piano plays through your default audio output (Windows Audio, at 48 kHz) from every MIDI input. Device names are the ones Windows shows; the log lists what's available when a name doesn't match, and the default is used instead. Problems in the file are logged with their line, and never stop the piano.
+
+piano-lab saves settings changed while it runs (from the app, or through the web API) back to this file, a second after the last change. So edit the file while piano-lab is stopped. If the file holds anything piano-lab didn't write, such as your own comments, it's first copied to `settings.toml.bak`.
 
 ## Rendering a music file to WAV
 `piano-lab render` plays a MIDI file or MusicXML score (for example, exported from MuseScore) through the piano engine and writes a WAV file, with no audio device:
 ```powershell
 npm run render -- piece.musicxml -o piece.wav
 ```
-File names are relative to the folder you run it from. `.\build\dev\backend\app\piano-lab.exe render` does the same without building first.
+File names are relative to the folder you run it from. `.\build\dev\audio-service\app\piano-lab-audio.exe render` does the same without building first.
 See [docs/rendering.md](docs/rendering.md) for what it supports and how AI agents use it.
 
 ## Contributing
 This is a solo project: outside contributions and pull requests aren't accepted. Forks are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
-Licensed under the [MIT License](LICENSE). The backend uses JUCE, which has its own licence terms (AGPLv3 or the JUCE licence), and its ASIO support uses Steinberg's ASIO SDK headers (the Steinberg ASIO licence or GPLv3); see [docs/vision.md](docs/vision.md#openness).
+Licensed under the [MIT License](LICENSE). The audio service uses JUCE, which has its own licence terms (AGPLv3 or the JUCE licence), and its ASIO support uses Steinberg's ASIO SDK headers (the Steinberg ASIO licence or GPLv3); see [docs/vision.md](docs/vision.md#openness).

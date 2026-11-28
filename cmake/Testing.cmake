@@ -19,13 +19,13 @@ endfunction()
 
 # pianolab_count_allocations(<test target>)
 #
-# Builds the allocation counter (engine/test-support) into a test executable, replacing its
+# Builds the allocation counter (sound-engine/test-support) into a test executable, replacing its
 # global operator new/delete. Only for executables that test the no-allocation rule.
 function(pianolab_count_allocations target)
     if(NOT TARGET ${target})
         return()
     endif()
-    set(dir "${PROJECT_SOURCE_DIR}/engine/test-support")
+    set(dir "${PROJECT_SOURCE_DIR}/sound-engine/test-support")
     target_sources(${target} PRIVATE "${dir}/pianolab/testing/count_allocations.cpp")
     target_include_directories(${target} PRIVATE "${dir}")
 endfunction()

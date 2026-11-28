@@ -1,0 +1,14 @@
+// Builds the web server to dist/ (`npm run build:web`), after the web API package it uses.
+{
+    "extends": "../tsconfig.base.json",
+    "compilerOptions": {
+        "composite": true,
+        "rootDir": "src",
+        "outDir": "dist",
+        // Kept with the output, so deleting dist/ means a full rebuild.
+        "tsBuildInfoFile": "dist/.tsbuildinfo",
+        "sourceMap": true
+    },
+    "include": ["src"],
+    "references": [{ "path": "../web-api" }]
+}

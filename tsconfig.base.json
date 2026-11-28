@@ -1,0 +1,17 @@
+{
+    // The settings every TypeScript project here shares. Node-only syntax rules match the task
+    // scripts': only types it could strip (erasableSyntaxOnly), and imports name the .ts file,
+    // rewritten to .js when compiled.
+    "compilerOptions": {
+        "target": "es2024",
+        "module": "nodenext",
+        "types": ["node"],
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "rewriteRelativeImportExtensions": true,
+        "skipLibCheck": true
+    }
+}

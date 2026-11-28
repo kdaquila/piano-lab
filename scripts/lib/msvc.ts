@@ -39,12 +39,23 @@ async function findVisualStudio(): Promise<string> {
     const vcTools = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64';
     const found = await capture(
         vswhere,
-        ['-latest', '-products', '*', '-requires', vcTools, '-property', 'installationPath', '-utf8'],
+        [
+            '-latest',
+            '-products',
+            '*',
+            '-requires',
+            vcTools,
+            '-property',
+            'installationPath',
+            '-utf8',
+        ],
         { env: process.env },
     );
     const vsPath = found.stdout.trim();
     if (found.code !== 0 || vsPath === '') {
-        throw new TaskError('No Visual Studio installation with the C++ tools (MSVC x64) was found.');
+        throw new TaskError(
+            'No Visual Studio installation with the C++ tools (MSVC x64) was found.',
+        );
     }
     return vsPath;
 }

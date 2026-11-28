@@ -1,0 +1,10 @@
+// Type-checks the acceptance tests (`npm run check`); `npm run acceptance` runs them.
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "allowImportingTsExtensions": true,
+        "types": ["node"]
+    },
+    "include": [".", "../src"]
+}

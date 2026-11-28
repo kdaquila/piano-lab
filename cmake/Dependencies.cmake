@@ -40,7 +40,7 @@ if(PIANOLAB_BUILD_TESTS)
     list(APPEND CMAKE_MODULE_PATH "${Catch2_SOURCE_DIR}/extras")
 endif()
 
-if(PIANOLAB_BUILD_BACKEND)
+if(PIANOLAB_BUILD_AUDIO_SERVICE)
     # JUCE is dual-licensed (AGPLv3 or the JUCE licence); see docs/vision.md#openness.
     CPMAddPackage(
         NAME JUCE
@@ -51,9 +51,9 @@ if(PIANOLAB_BUILD_BACKEND)
         EXCLUDE_FROM_ALL YES
     )
 
-    # Logging (MIT), used only behind our own Log interface (backend/logging). Formats with the
-    # standard library's std::format instead of bundling the fmt library. On Windows, file names
-    # are UTF-16, so log paths with any characters work.
+    # Logging (MIT), used only behind our own Log interface (audio-service/logging). Formats with
+    # the standard library's std::format instead of bundling the fmt library. On Windows, file
+    # names are UTF-16, so log paths with any characters work.
     if(WIN32)
         set(pianolab_spdlog_wchar ON)
     else()
@@ -75,8 +75,8 @@ if(PIANOLAB_BUILD_BACKEND)
             "SPDLOG_INSTALL OFF"
     )
 
-    # Settings files (MIT), read only behind our own settings library (backend/settings), from one
-    # .cpp file. Header-only. GitHub's "legacy" tarball of the tag (its folder is named after the
+    # Settings files (MIT), read only behind our own settings library (audio-service/settings),
+    # from one .cpp file. Header-only. GitHub's "legacy" tarball of the tag (its folder is named after the
     # commit, marzer-tomlplusplus-efd80e0); DOWNLOAD_NAME gives it an extension CMake recognises.
     CPMAddPackage(
         NAME tomlplusplus
@@ -84,6 +84,18 @@ if(PIANOLAB_BUILD_BACKEND)
         URL https://codeload.github.com/marzer/tomlplusplus/legacy.tar.gz/refs/tags/v3.5.1
         URL_HASH SHA256=1792eb7a843366f54b777d170dd70829ae3548d0440f71039a2f10c2f1fd4107
         DOWNLOAD_NAME tomlplusplus-3.5.1.tar.gz
+        DOWNLOAD_ONLY YES
+    )
+
+    # JSON (MIT), for the service pipe's JSON Lines, used only behind our own pipe library
+    # (audio-service/pipe), from one .cpp file. Header-only; works with exceptions off and reports
+    # errors as values. Its CI tests a newer MSVC than ours; built and tested on MSVC 19.44 before
+    # adoption (step 0.6).
+    CPMAddPackage(
+        NAME glaze
+        VERSION 9.1.0
+        URL https://github.com/stephenberry/glaze/archive/refs/tags/v9.1.0.tar.gz
+        URL_HASH SHA256=55f8a675397c505f9bee6c160e1c26b0085868f185d04d7a7727531fdbff4bd4
         DOWNLOAD_ONLY YES
     )
 endif()

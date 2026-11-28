@@ -15,12 +15,12 @@ piano-lab is a local instrument: it runs on your own computer, next to your keyb
 
 In one sentence: the **web UI** calls the **web API**, served by the **web server**, which drives the **audio service** over the **service pipe**, and the audio service runs the **sound engine** on your audio and MIDI devices.
 
-**Terms used in these docs** (each named for what it does; the folder names follow from step 0.6):
-- The **sound engine** is the piano's physics and real-time plumbing: a library of standard C++ with no dependencies (`sound-engine/`; today `engine/`). "The engine" for short.
-- The **audio service** is the C++ program that runs the sound engine. It owns the audio and MIDI devices (through JUCE), reads and writes the settings, records, renders files, and talks only to the web server (`audio-service/`; today `backend/`).
+**Terms used in these docs** (each named for what it does):
+- The **sound engine** is the piano's physics and real-time plumbing: a library of standard C++ with no dependencies (`sound-engine/`). "The engine" for short.
+- The **audio service** is the C++ program that runs the sound engine. It owns the audio and MIDI devices (through JUCE), reads and writes the settings, records, renders files, and talks only to the web server (`audio-service/`).
 - The **web server** is the TypeScript program on Node that faces the outside: it serves the web UI and the web API (HTTP and WebSocket), pairs devices, and starts the audio service (`web-server/`).
 - The **web API** is the public, versioned API every client uses, defined once as TypeBox schemas shared by the web server and the web UI (`web-api/`), and documented in `docs/web-api.md`.
-- The **web UI** is the React app (`web-ui/`; today `ui/`, which is still empty).
+- The **web UI** is the React app (`web-ui/`).
 - The **service pipe** is the private link between the web server and the audio service: the audio service's stdin and stdout, carrying a small fixed format. It isn't public, and only the web server uses it.
 
 ```

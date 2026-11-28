@@ -1,7 +1,7 @@
 ---
 paths:
-  - "engine/**/*.{hpp,cpp,h}"
-  - "backend/**/*.{hpp,cpp,h}"
+  - "sound-engine/**/*.{hpp,cpp,h}"
+  - "audio-service/**/*.{hpp,cpp,h}"
 ---
 
 # C++ doc comments

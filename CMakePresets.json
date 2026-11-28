@@ -20,7 +20,7 @@
         {
             "name": "dev",
             "displayName": "Dev (Debug)",
-            "description": "Everyday build: engine, backend and tests, with debug info.",
+            "description": "Everyday build: sound engine, audio service and tests, with debug info.",
             "inherits": "windows-msvc",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
         },
@@ -33,13 +33,13 @@
         },
         {
             "name": "asan",
-            "displayName": "AddressSanitizer (engine only)",
-            "description": "Engine and tests under AddressSanitizer. Builds without JUCE, which also proves the engine doesn't need it.",
+            "displayName": "AddressSanitizer (sound engine only)",
+            "description": "Sound engine and tests under AddressSanitizer. Builds without JUCE, which also proves the sound engine doesn't need it.",
             "inherits": "windows-msvc",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "PIANOLAB_ASAN": "ON",
-                "PIANOLAB_BUILD_BACKEND": "OFF"
+                "PIANOLAB_BUILD_AUDIO_SERVICE": "OFF"
             }
         }
     ],

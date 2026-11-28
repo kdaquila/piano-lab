@@ -9,23 +9,36 @@
     },
     "scripts": {
         "build": "run-s build:*",
-        "build:server": "node scripts/server/build.ts",
+        "build:audio": "node scripts/audio/build.ts",
+        "build:web": "node scripts/web/build.ts",
         "test": "run-s test:*",
-        "test:server": "node scripts/server/test.ts",
+        "test:audio": "node scripts/audio/test.ts",
+        "test:web": "node scripts/web/test.ts",
         "format": "run-s format:*",
-        "format:server": "node scripts/server/format.ts",
+        "format:audio": "node scripts/audio/format.ts",
+        "format:web": "node scripts/web/format.ts",
         "lint": "run-s lint:*",
-        "lint:server": "node scripts/server/lint.ts",
+        "lint:audio": "node scripts/audio/lint.ts",
+        "lint:web": "node scripts/web/lint.ts",
         "check": "run-s typecheck check:*",
-        "check:server": "node scripts/server/check.ts",
+        "check:audio": "node scripts/audio/check.ts",
+        "check:web": "node scripts/web/check.ts",
         "typecheck": "tsc -p scripts",
-        "start": "run-s start:*",
-        "start:server": "node scripts/server/start.ts",
-        "render": "node scripts/server/render.ts"
+        "start": "node scripts/web/start.ts",
+        "start:audio": "node scripts/audio/start.ts",
+        "render": "node scripts/audio/render.ts",
+        "acceptance": "node scripts/web/acceptance.ts"
     },
     "devDependencies": {
         "@types/node": "24.19.4",
         "npm-run-all2": "9.1.0",
-        "typescript": "7.0.2"
-    }
+        "oxfmt": "0.80.0",
+        "oxlint": "1.95.0",
+        "typescript": "7.0.2",
+        "vitest": "5.1.2"
+    },
+    "workspaces": [
+        "web-api",
+        "web-server"
+    ]
 }
