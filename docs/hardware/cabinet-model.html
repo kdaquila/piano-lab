@@ -175,6 +175,13 @@ const SCHEMA = [
   ['On the shelf', 'pageHeight', 'Sheet music page height', 28, 20, 35, 0.1, 'cm'],
 ];
 const DEFAULTS = Object.fromEntries(SCHEMA.map(s => [s[1], s[3]]));
+const RANGES = Object.fromEntries(SCHEMA.map(s => [s[1], [s[4], s[5]]]));
+// A loaded or pasted value is kept only if it is a finite number, clamped to its slider's range.
+function cleanValue(k, v) {
+  if (!(k in DEFAULTS) || typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  const [min, max] = RANGES[k];
+  return Math.min(max, Math.max(min, v));
+}
 const STORE_KEY = 'piano-cabinet-params';
 
 // Values persist across reloads, but only while the committed default they were tweaked from
@@ -184,7 +191,8 @@ function loadParams() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORE_KEY));
     for (const [k, v] of Object.entries(stored?.values ?? {})) {
-      if (k in DEFAULTS && typeof v === 'number' && stored.defaults?.[k] === DEFAULTS[k]) params[k] = v;
+      const c = cleanValue(k, v);
+      if (c !== undefined && stored.defaults?.[k] === DEFAULTS[k]) params[k] = c;
     }
   } catch { /* nothing stored, or unreadable: start from the defaults */ }
   return params;
@@ -872,8 +880,12 @@ const actions = {
     if (!text) return;
     let values;
     try { values = JSON.parse(text); } catch { toast('That isn\'t valid JSON'); return; }
+    if (!values || typeof values !== 'object' || Array.isArray(values)) { toast('Expected an object of values'); return; }
     let n = 0;
-    for (const [k, v] of Object.entries(values)) if (k in DEFAULTS && typeof v === 'number') { params[k] = v; n++; }
+    for (const [k, v] of Object.entries(values)) {
+      const c = cleanValue(k, v);
+      if (c !== undefined) { params[k] = c; n++; }
+    }
     // Pasted values start from the defaults: anything not in the paste goes back to its default.
     for (const k of Object.keys(DEFAULTS)) if (!(k in values)) params[k] = DEFAULTS[k];
     for (const c of controllers.values()) c.updateDisplay();
