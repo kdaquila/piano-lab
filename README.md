@@ -4,7 +4,7 @@ A physically modelled grand piano. Strings, hammers, bridge and soundboard are s
 
 The goal is a high-quality piano that's **free, for a large audience, with low friction**. A local program runs the physics, audio and MIDI, and serves a touch-first web UI on the same computer, or, if you turn on network mode, to a paired phone on your local network. See [docs/vision.md](docs/vision.md).
 
-It's a hobby project, in early days. Today it plays a plain sine per key from a MIDI keyboard: the real engine at its simplest.
+It's a hobby project, in early days. Today it plays a plain sine per key from a MIDI keyboard or a touch screen: the real engine at its simplest.
 
 ## Status
 Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audio out, with a web UI). See [docs/plan](docs/plan/README.md) for the roadmap and current step.
@@ -26,9 +26,9 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `audio-service/logging` | The audio service's log (console and file), with spdlog behind our own small interface |
 | `audio-service/settings` | `settings.toml`: reading it, describing and changing settings by name, and saving it, all from the settings' field tables |
 | `audio-service/pipe` | The service pipe's messages (JSON-RPC 2.0, one per line), read and written with Glaze |
-| `web-server/` | **The web server:** TypeScript on Node. Serves the web UI and the web API on `http://localhost:4440`, and runs the audio service, talking to it over the service pipe (being built in step 0.6) |
+| `web-server/` | **The web server:** TypeScript on Node. Serves the web UI and the web API on `http://localhost:4440`, and runs the audio service, talking to it over the service pipe |
 | `web-api/` | **The web API:** its TypeBox schemas, shared by the web server and the web UI |
-| `web-ui/` | **The web UI:** a touch-first React app (from step 0.7) |
+| `web-ui/` | **The web UI:** a touch-first React app (Vite, MUI, Zustand), built to `web-ui/dist/` and served by the web server |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
 | `docs/` | Vision, plan and [coding style](docs/coding-style.md) |
@@ -55,7 +55,7 @@ You need:
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
 - Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `npm run check` is what enforces formatting. Visual Studio stays available as a debugger.
 
-Then, in the repository folder, install the web server's packages and the developer tools that come from npm (TypeScript, Vitest, oxlint, oxfmt, and npm-run-all2 for running every part's tasks). Packages' install scripts never run (`.npmrc`):
+Then, in the repository folder, install the web server's and the web UI's packages and the developer tools that come from npm (TypeScript, Vite, Vitest, Playwright, oxlint, oxfmt, and npm-run-all2 for running every part's tasks). Packages' install scripts never run (`.npmrc`):
 ```powershell
 npm install
 ```
@@ -72,16 +72,17 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 | `npm run format` | Reformats the C++ with clang-format, and the TypeScript with oxfmt |
 | `npm run lint` | Runs clang-tidy on every C++ file, and oxlint on the TypeScript |
 | `npm run check` | The quality gate (below) |
-| `npm start` | Builds, then runs piano-lab: the web server and the audio service (see [Playing the piano](#playing-the-piano)) |
-| `npm run acceptance` | Builds, then runs the end-to-end checks against the real audio service (needs a sound device; plays quiet tones) |
+| `npm start` | Builds, then runs piano-lab: the web server and the audio service, and opens the web UI (see [Playing the piano](#playing-the-piano)) |
+| `npm run acceptance` | Builds, then runs the end-to-end checks against the real audio service, and the web UI's end-to-end tests in Microsoft Edge (needs a sound device; plays quiet tones) |
+| `npm run start:ui` | Runs the web UI's development server on `http://localhost:5173`, which reloads on every change; start piano-lab with `npm start` first |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
-Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), and `npm run build:web` just the TypeScript (the web server and the web API, compiled to their `dist/` folders). The web UI joins with its own `:ui` commands in step 0.7.
+Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), `npm run build:web` the web server and the web API (compiled to their `dist/` folders), and `npm run build:ui` the web UI.
 
 `build:audio` and `test:audio` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (the sound engine and its tests under AddressSanitizer, built without JUCE). For example `npm run test:audio -- release`. Output goes to `build/<preset>/`.
 
 ### The quality check
-One command runs everything: a type check of the task scripts; for the C++, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests; for the TypeScript, formatting, the build, the tests and oxlint. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
+One command runs everything: a type check of the task scripts; for the C++, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests; for the web server, the web API and the web UI, formatting, the build, the tests and oxlint. The web UI's end-to-end tests need a sound device, so they run with `npm run acceptance`. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
 ```powershell
 npm run check
 ```
@@ -92,8 +93,12 @@ Plug in a MIDI keyboard, then build and start the piano:
 ```powershell
 npm start
 ```
-That builds both parts and runs `piano-lab start`: the web server, on `http://localhost:4440`, which runs the audio service. It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console; the audio service also logs to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
+That builds everything and runs `piano-lab start`: the web server, on `http://localhost:4440`, which runs the audio service and opens the web UI in your browser. It runs until you press Ctrl+C. What it opened, and any problems, are shown on the console; the audio service also logs to `logs\piano-lab-audio.log` next to `piano-lab-audio.exe`.
 
+### The web UI
+The web UI opens in your default browser at `http://localhost:4440`. Play the on-screen keyboard by touch (chords work) or with the mouse; it lights up the keys you play on your MIDI keyboard too. Tap or drag the strip of all 88 keys under it to move along the keyboard. Volume and release are above it; the gear opens the settings (audio output, MIDI inputs, tuning), and the line along the bottom shows the latest problem, opening the full log. To install it as an app with its own window, use your browser's *Install* button in the address bar.
+
+### The piano-lab command
 From another terminal in the repository folder, `npx` runs the `piano-lab` command:
 ```powershell
 npx piano-lab status

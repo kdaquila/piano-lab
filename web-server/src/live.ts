@@ -1,8 +1,8 @@
 // The live side of the web API: every WebSocket client, and what's sent to them. Keeps the latest
-// state (settings, keys held, what the audio service is doing), so a client that connects gets
-// it at once, then every change as it happens.
+// state (settings, keys held, what the audio service is doing) and the recent log lines, so a
+// client that connects gets them at once, then every change as it happens.
 
-import type { Event, ServiceState, SettingValues } from '@piano-lab/web-api';
+import type { Event, LogLevel, ServiceState, SettingValues } from '@piano-lab/web-api';
 import type { RunState } from './audio-service.ts';
 import type { ServiceEvent } from './pipe.ts';
 
@@ -19,6 +19,12 @@ export interface Client {
  */
 export const maxBufferedBytes = 256 * 1024;
 
+/** How many recent log lines a client is sent on connecting. */
+export const logLinesKept = 100;
+
+/** A log event, as sent to clients. */
+type LogLine = Extract<Event, { type: 'log' }>;
+
 /** The web API's name for what the audio service is doing. */
 export function publicState(state: RunState): ServiceState {
     return state === 'stopped' ? 'stopping' : state;
@@ -30,6 +36,7 @@ export class LiveHub {
     #settings: SettingValues | undefined;
     #keys: number[] = [];
     #state: ServiceState = 'starting';
+    #logLines: LogLine[] = [];
 
     /** How many clients are connected. */
     get clientCount(): number {
@@ -44,6 +51,9 @@ export class LiveHub {
             send(client, { type: 'settings', values: this.#settings });
         }
         send(client, { type: 'keys', keys: this.#keys });
+        for (const line of this.#logLines) {
+            send(client, line);
+        }
     }
 
     /** Removes a client that has gone. */
@@ -75,6 +85,17 @@ export class LiveHub {
         }
     }
 
+    /** A log line for every client (from `info` up; debug lines aren't sent), kept for new ones. */
+    log(level: LogLevel, message: string, at: number = Date.now()): void {
+        if (level === 'debug') {
+            return;
+        }
+        const line: LogLine = { type: 'log', level, message, at };
+        this.#logLines.push(line);
+        this.#logLines.splice(0, Math.max(0, this.#logLines.length - logLinesKept));
+        this.broadcast(line);
+    }
+
     /** Every setting's value, read from the audio service (e.g. when it's ready). */
     setSettings(values: SettingValues): void {
         this.#settings = values;
@@ -92,9 +113,7 @@ export class LiveHub {
                 this.broadcast({ type: 'level', peak: event.params.peak });
                 return;
             case 'log':
-                if (event.params.level !== 'debug') {
-                    this.broadcast({ type: 'log', ...event.params });
-                }
+                this.log(event.params.level, event.params.message);
                 return;
             case 'settings':
                 this.setSettings(event.params.values);

@@ -1,7 +1,8 @@
 // The web server's HTTP side: the web API's routes (paths in web-api's http.ts), the WebSocket for
-// live traffic, and the browser protections in front of all of them. Fastify checks every
-// request against its schema before our handlers run.
+// live traffic, the web UI's files, and the browser protections in front of all of them. Fastify
+// checks every request against its schema before our handlers run.
 
+import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify';
@@ -38,7 +39,26 @@ export interface ServerOptions {
     version: string;
     /** Called once `POST /api/v0/stop` has been answered: piano-lab should stop. */
     onStop: () => void;
+    /** The built web UI's folder, served at `/`; or why there's none, answered at `/`. */
+    webUi: { folder: string } | { problem: string };
 }
+
+/**
+ * The web UI's pages may load only piano-lab's own scripts, styles (MUI writes some inline),
+ * images and connections, and may not be framed by another site.
+ */
+export const contentSecurityPolicy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+].join('; ');
 
 /** The host names a request may be addressed to: this computer only (see `allowedHost`). */
 const localHostNames = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -186,6 +206,27 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     app.setNotFoundHandler((request, reply) =>
         reply.code(404).send(errorReply('not-found', `no ${request.method} ${request.url}`)),
     );
+
+    // --- The web UI ------------------------------------------------------------------------------
+
+    const { webUi } = options;
+    if ('folder' in webUi) {
+        await app.register(fastifyStatic, {
+            root: webUi.folder,
+            prefix: '/',
+            index: 'index.html',
+            decorateReply: false,
+            setHeaders: (response) => {
+                response.header('content-security-policy', contentSecurityPolicy);
+                response.header('x-content-type-options', 'nosniff');
+                response.header('referrer-policy', 'no-referrer');
+            },
+        });
+    } else {
+        app.get('/', (_request, reply) =>
+            reply.code(404).send(errorReply('not-found', `no web UI: ${webUi.problem}`)),
+        );
+    }
 
     // --- Requests --------------------------------------------------------------------------------
 

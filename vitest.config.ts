@@ -5,6 +5,6 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
     test: {
-        include: ['web-*/tests/**/*.test.ts'],
+        include: ['web-api/tests/**/*.test.ts', 'web-server/tests/**/*.test.ts'],
     },
 });

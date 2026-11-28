@@ -14,5 +14,17 @@
         // Vitest's expect takes a message as its second argument.
         "vitest/valid-expect": ["error", { "maxArgs": 2 }]
     },
-    "ignorePatterns": ["build/**", "**/dist/**"]
+    "overrides": [
+        {
+            // The web UI: React, and accessible to keyboards and screen readers.
+            "files": ["web-ui/**"],
+            "plugins": ["typescript", "unicorn", "oxc", "import", "vitest", "react", "jsx-a11y"],
+            "env": { "browser": true },
+            "rules": {
+                // React 17's JSX transform imports what JSX needs by itself.
+                "react/react-in-jsx-scope": "off"
+            }
+        }
+    ],
+    "ignorePatterns": ["build/**", "**/dist/**", "test-results/**"]
 }

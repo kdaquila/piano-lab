@@ -4,6 +4,15 @@
 import { join } from 'node:path';
 import { exec, repoRoot, stage } from '../lib/run.ts';
 
+/** What the web tasks format and lint: everything TypeScript but the web UI, which has its own. */
+const paths = [
+    'web-api',
+    'web-server',
+    'scripts',
+    'vitest.config.ts',
+    'vitest.acceptance.config.ts',
+];
+
 /** Runs an npm-installed tool's command-line script, from `node_modules/<path>`. */
 export function tool(path: string, args: readonly string[]): Promise<void> {
     return exec(process.execPath, [join(repoRoot, 'node_modules', path), ...args], {
@@ -32,7 +41,7 @@ export function test(): Promise<void> {
 
 /** Lints all the TypeScript, failing on warnings too. */
 export function lint(): Promise<void> {
-    return stage('Lint (oxlint)', () => tool('oxlint/bin/oxlint', ['--deny-warnings']));
+    return stage('Lint (oxlint)', () => tool('oxlint/bin/oxlint', ['--deny-warnings', ...paths]));
 }
 
 /**
@@ -41,5 +50,5 @@ export function lint(): Promise<void> {
  */
 export function format(write: boolean): Promise<void> {
     const name = write ? 'Format (oxfmt)' : 'Format check (oxfmt)';
-    return stage(name, () => tool('oxfmt/bin/oxfmt', [write ? '--write' : '--check']));
+    return stage(name, () => tool('oxfmt/bin/oxfmt', [write ? '--write' : '--check', ...paths]));
 }
