@@ -1,0 +1,18 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["typescript", "unicorn", "oxc", "import", "node", "vitest"],
+    "categories": {
+        "correctness": "error",
+        "suspicious": "error",
+        "perf": "error"
+    },
+    "rules": {
+        // Tasks run their stages one after another on purpose.
+        "no-await-in-loop": "off",
+        // Small helpers stay next to the one function that uses them.
+        "unicorn/consistent-function-scoping": "off",
+        // Vitest's expect takes a message as its second argument.
+        "vitest/valid-expect": ["error", { "maxArgs": 2 }]
+    },
+    "ignorePatterns": ["build/**", "**/dist/**"]
+}

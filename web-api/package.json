@@ -1,0 +1,17 @@
+{
+    "name": "@piano-lab/web-api",
+    "version": "0.1.0",
+    "private": true,
+    "description": "piano-lab's public web API: its TypeBox schemas, shared by the web server and the web UI. See docs/web-api.md.",
+    "license": "MIT",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "dependencies": {
+        "typebox": "1.4.7"
+    }
+}

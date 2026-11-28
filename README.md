@@ -26,6 +26,8 @@ Working on Milestone 0, the walking skeleton (MIDI in → sine per note → audi
 | `audio-service/logging` | The audio service's log (console and file), with spdlog behind our own small interface |
 | `audio-service/settings` | `settings.toml`: reading it, describing and changing settings by name, and saving it, all from the settings' field tables |
 | `audio-service/pipe` | The service pipe's messages (JSON-RPC 2.0, one per line), read and written with Glaze |
+| `web-server/` | **The web server:** TypeScript on Node. Serves the web UI and the web API on `http://localhost:4440`, and runs the audio service, talking to it over the service pipe (being built in step 0.6) |
+| `web-api/` | **The web API:** its TypeBox schemas, shared by the web server and the web UI |
 | `web-ui/` | **The web UI:** a touch-first React app (from step 0.7) |
 | `cmake/` | Build helpers: dependencies, warnings, tests, sanitizers |
 | `scripts/` | The developer tasks behind the npm commands (build, test, check, ...), in TypeScript |
@@ -53,7 +55,7 @@ You need:
   LLVM's installer may not add itself to PATH. If `clang-format --version` fails, add `C:\Program Files\LLVM\bin` to your user PATH.
 - Optional: an editor with **clangd**. The repo ships editor-neutral settings: `.clangd` (where the build flags are) and `.editorconfig` (line endings, whitespace). In **VS Code**, open the folder and accept the recommended extensions (clangd, CMake Tools, EditorConfig). Format-on-save is up to you: turn it on in your own settings if you like it, since `npm run check` is what enforces formatting. Visual Studio stays available as a debugger.
 
-Then, in the repository folder, install the developer tools that come from npm (TypeScript, and npm-run-all2 for running every part's tasks):
+Then, in the repository folder, install the web server's packages and the developer tools that come from npm (TypeScript, Vitest, oxlint, oxfmt, and npm-run-all2 for running every part's tasks). Packages' install scripts never run (`.npmrc`):
 ```powershell
 npm install
 ```
@@ -67,18 +69,18 @@ Everything runs through npm, from any terminal. The commands set up the Visual S
 |---|---|
 | `npm run build` | Builds the debug preset (configuring first when needed) |
 | `npm test` | Builds, then runs the tests |
-| `npm run format` | Reformats the C++ files with clang-format |
-| `npm run lint` | Runs clang-tidy on every C++ file |
+| `npm run format` | Reformats the C++ with clang-format, and the TypeScript with oxfmt |
+| `npm run lint` | Runs clang-tidy on every C++ file, and oxlint on the TypeScript |
 | `npm run check` | The quality gate (below) |
 | `npm start` | Builds, then plays the piano live (see [Playing the piano](#playing-the-piano)) |
 | `npm run render -- <file>` | Builds, then renders a music file to WAV (see [Rendering](#rendering-a-music-file-to-wav)) |
 
-Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service). Today that's the only part; the web server and the web UI join with their own `:web` and `:ui` commands, which the plain commands then run too.
+Each one runs every part of the project. To run one part only, add its name: `npm run build:audio` builds just the C++ (the sound engine and the audio service), and `npm run build:web` just the TypeScript (the web server and the web API, compiled to their `dist/` folders). The web UI joins with its own `:ui` commands in step 0.7.
 
 `build:audio` and `test:audio` take a preset after `--`: `dev` (debug, the default), `release` (optimised) or `asan` (the sound engine and its tests under AddressSanitizer, built without JUCE). For example `npm run test:audio -- release`. Output goes to `build/<preset>/`.
 
 ### The quality check
-One command runs everything: a type check of the task scripts, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
+One command runs everything: a type check of the task scripts; for the C++, formatting (checked, never changed), the build and tests, clang-tidy, and the AddressSanitizer build and tests; for the TypeScript, formatting, the build, the tests and oxlint. It's the same gate for people and AI agents. It requires LLVM 23, so formatting is identical on every machine.
 ```powershell
 npm run check
 ```

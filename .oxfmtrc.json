@@ -1,0 +1,17 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "printWidth": 100,
+    "tabWidth": 4,
+    "singleQuote": true,
+    "ignorePatterns": [
+        "build/**",
+        "**/dist/**",
+        "*.md",
+        "*.json",
+        "*.yml",
+        "*.yaml",
+        ".clang-format",
+        ".clang-tidy",
+        ".clangd"
+    ]
+}

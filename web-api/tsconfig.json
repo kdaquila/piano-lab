@@ -1,0 +1,12 @@
+// Builds the web API package to dist/ (`npm run build:web`).
+{
+    "extends": "../tsconfig.base.json",
+    "compilerOptions": {
+        "composite": true,
+        "rootDir": "src",
+        "outDir": "dist",
+        "declaration": true,
+        "sourceMap": true
+    },
+    "include": ["src"]
+}

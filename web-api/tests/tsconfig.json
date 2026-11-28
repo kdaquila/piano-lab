@@ -1,0 +1,10 @@
+// Type-checks the tests (`npm run check`); Vitest runs them from the .ts files.
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "allowImportingTsExtensions": true,
+        "types": ["node"]
+    },
+    "include": [".", "../src"]
+}

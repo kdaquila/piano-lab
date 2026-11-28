@@ -3,6 +3,8 @@
         "llvm-vs-code-extensions.vscode-clangd",
         "ms-vscode.cmake-tools",
         "ms-vscode.cpptools",
-        "editorconfig.editorconfig"
+        "editorconfig.editorconfig",
+        "oxc.oxc-vscode",
+        "vitest.explorer"
     ]
 }
