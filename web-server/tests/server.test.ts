@@ -9,10 +9,10 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import type { Event } from '@piano-lab/web-api';
-import { AudioService } from '../src/audio-service.ts';
+import { AudioService, AudioServiceError } from '../src/audio-service.ts';
 import { LiveHub } from '../src/live.ts';
 import { describeStatus, runCli } from '../src/commands.ts';
-import { allowedHost, allowedOrigin, buildServer } from '../src/server.ts';
+import { allowedHost, allowedOrigin, buildServer, type Audio } from '../src/server.ts';
 
 const log = { info: () => {}, warn: () => {}, error: () => {} };
 let app: FastifyInstance;
@@ -232,10 +232,40 @@ describe('the requests', () => {
         expect((await call('DELETE', '/api/v0/settings')).status).toBe(404);
     });
 
-    it('stop piano-lab once the reply is sent', async () => {
-        const reply = await call('POST', '/api/v0/stop');
-        expect(reply.status).toBe(202);
+    it('refuse a body on requests that take none', async () => {
+        for (const path of ['/api/v0/stop', '/api/v0/recording/start', '/api/v0/recording/stop']) {
+            const reply = await call('POST', path, { body: '{"file":"take1.wav"}' });
+            expect(reply.status, path).toBe(400);
+            expect(reply.body, path).toMatchObject({ error: { code: 'invalid-request' } });
+        }
+        expect(stops).toBe(0);
+    });
+
+    it('stop piano-lab once the reply is sent, with no body or an empty one', async () => {
+        expect((await call('POST', '/api/v0/stop')).status).toBe(202);
         await until(() => stops === 1);
+        expect((await call('POST', '/api/v0/stop', { body: '{}' })).status).toBe(202);
+        await until(() => stops === 2);
+    });
+
+    it('report an audio service that doesn’t answer in the status, rather than failing', async () => {
+        const stuck: Audio = {
+            state: 'running',
+            request: () =>
+                Promise.reject(new AudioServiceError('timeout', "the audio service didn't answer")),
+            notify: () => 'unavailable',
+        };
+        const other = await buildServer({
+            audio: stuck,
+            hub: new LiveHub(),
+            log,
+            version: '9.9.9',
+            onStop: () => {},
+        });
+        const reply = await other.inject({ method: 'GET', url: '/api/v0/status' });
+        await other.close();
+        expect(reply.statusCode).toBe(200);
+        expect(reply.json()).toEqual({ version: '9.9.9', audioService: 'running', audio: null });
     });
 });
 
@@ -322,6 +352,9 @@ describe('the piano-lab command', () => {
             ].join('\n'),
             err: '',
         });
+        expect(describeStatus({ version: '1.0.0', audioService: 'running', audio: null })).toBe(
+            "piano-lab 1.0.0: the audio service is running\naudio: the audio service didn't answer; it may be stuck",
+        );
         expect(describeStatus({ version: '1.0.0', audioService: 'restarting', audio: null })).toBe(
             'piano-lab 1.0.0: the audio service is restarting',
         );

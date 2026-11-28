@@ -196,4 +196,14 @@ describe('LineSplitter', () => {
         expect(splitter.push('\nnext\n')).toEqual({ lines: ['next'], dropped: 0 });
         expect(splitter.push('12345678\n')).toEqual({ lines: ['12345678'], dropped: 0 });
     });
+
+    it('gives the last line when the output ends without a line ending', () => {
+        const splitter = new LineSplitter(8);
+        splitter.push('one\ntwo\r');
+        expect(splitter.flush()).toEqual(['two']);
+        expect(splitter.flush()).toEqual([]);
+        splitter.push('123456789');
+        expect(splitter.flush()).toEqual([]);
+        expect(splitter.push('fresh\n')).toEqual({ lines: ['fresh'], dropped: 0 });
+    });
 });

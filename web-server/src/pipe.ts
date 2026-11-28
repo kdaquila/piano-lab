@@ -293,4 +293,16 @@ export class LineSplitter {
             start = end + 1;
         }
     }
+
+    /**
+     * The output has ended: returns its last line if it had no line ending (none if it was
+     * empty or overlong), and starts afresh.
+     */
+    flush(): string[] {
+        const line = this.#partial.endsWith('\r') ? this.#partial.slice(0, -1) : this.#partial;
+        const kept = this.#dropping || line === '' ? [] : [line];
+        this.#partial = '';
+        this.#dropping = false;
+        return kept;
+    }
 }

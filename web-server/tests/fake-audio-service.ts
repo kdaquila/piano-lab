@@ -1,12 +1,14 @@
 // A stand-in for `piano-lab-audio run`, for the web server's tests: speaks the service pipe like
 // the real one, with no devices. Its first argument picks how it behaves:
 //   normal       ready at once; answers requests; stops when its input ends
-//   crash        ready, then stops with exit code 3 and a line on stderr
+//   crash        ready, then stops with exit code 3 and two lines on stderr, the last unended
 //   bad-reply    ready; answers `status` with something that isn't a status
 //   silent       never gets ready and never answers
 //   stubborn     ready; ignores the end of its input (has to be killed)
+//   deaf         ready; never reads its input, so what's sent to it piles up (has to be killed)
 
 import { createInterface } from 'node:readline';
+import { PassThrough } from 'node:stream';
 
 const mode = process.argv[2] ?? 'normal';
 const write = (message: object) =>
@@ -29,14 +31,14 @@ if (mode !== 'silent') {
     event('ready', { version: '0.0.0-test' });
 }
 if (mode === 'crash') {
-    process.stderr.write('something broke\n');
-    process.exit(3);
+    process.stderr.write('something broke\nat the very end', () => process.exit(3));
 }
-if (mode === 'stubborn') {
+if (mode === 'stubborn' || mode === 'deaf') {
     setInterval(() => {}, 1000);
 }
 
-const lines = createInterface({ input: process.stdin });
+// A deaf one reads from nowhere, leaving its real input unread.
+const lines = createInterface({ input: mode === 'deaf' ? new PassThrough() : process.stdin });
 lines.on('line', (line) => {
     if (mode === 'silent') return;
     const request = JSON.parse(line) as {

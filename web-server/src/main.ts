@@ -79,9 +79,9 @@ export async function runWebServer(port: number = defaultPort): Promise<number> 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) {
         process.on(signal, () => void stop());
     }
-    audio
-        .start()
-        .catch((error: unknown) => log.error(`the audio service didn't start: ${String(error)}`));
+    // A start that fails is logged by the audio service, and retried; one cut short by stopping
+    // isn't a problem at all.
+    audio.start().catch(() => {});
 
     await new Promise<void>((resolve) => app.server.once('close', resolve));
     await stopping;

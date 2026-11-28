@@ -33,7 +33,7 @@ afterEach(async () => {
 });
 
 /** An `AudioService` running the stand-in in `mode`, with what it logs and every event. */
-function fake(mode: string, overrides: Partial<Timings> = {}) {
+function fake(mode: string, overrides: Partial<Timings> = {}, maxQueuedBytes?: number) {
     const log = memoryLog();
     const events: ServiceEvent[] = [];
     const versions: string[] = [];
@@ -46,6 +46,7 @@ function fake(mode: string, overrides: Partial<Timings> = {}) {
         onEvent: (event) => events.push(event),
         onReady: (version) => versions.push(version),
         timings: { ...quick, ...overrides },
+        ...(maxQueuedBytes === undefined ? {} : { maxQueuedBytes }),
     });
     started.push(service);
     return { service, log, events, versions };
@@ -74,7 +75,7 @@ describe('AudioService', () => {
         expect(values['sine.gain']).toBe(0.5);
         await until(() => events.some((e) => e.event === 'settings'));
 
-        expect(service.notify('note.on', { key: 60, velocity: 1 })).toBe(true);
+        expect(service.notify('note.on', { key: 60, velocity: 1 })).toBe('sent');
         await until(() => events.some((e) => e.event === 'keys'));
         expect(events.find((e) => e.event === 'keys')).toEqual({
             event: 'keys',
@@ -105,12 +106,29 @@ describe('AudioService', () => {
         ).toBe(true);
     });
 
-    it('times out requests and a start that never gets ready', async () => {
-        const { service } = fake('silent', { readyTimeoutMs: 200 });
+    it('ends and restarts an audio service that never gets ready', async () => {
+        const { service, log } = fake('silent', { readyTimeoutMs: 200 });
         await expect(service.start()).rejects.toMatchObject({ kind: 'timeout' });
-        expect(service.state).toBe('starting');
         await expect(service.request('status', {})).rejects.toMatchObject({ kind: 'unavailable' });
-        expect(service.notify('note.off', { key: 60 })).toBe(false);
+        expect(service.notify('note.off', { key: 60 })).toBe('unavailable');
+        // Ended, restarted, and ended again: restarts are timed too.
+        const endings = () => log.lines.filter((line) => line.includes("wasn't ready after 0.2 s"));
+        await until(() => endings().length >= 2);
+        expect(log.lines.some((line) => line.includes('stopped unexpectedly'))).toBe(true);
+    });
+
+    it('refuses more once too much is waiting for the audio service', async () => {
+        const { service: small } = fake('deaf', {}, 4096);
+        await small.start();
+        let result = small.notify('note.on', { key: 60, velocity: 1 });
+        for (let sent = 0; result === 'sent' && sent < 1_000_000; sent++) {
+            result = small.notify('note.on', { key: 60, velocity: 1 });
+        }
+        expect(result).toBe('busy');
+        await expect(small.request('status', {})).rejects.toMatchObject({
+            kind: 'unavailable',
+            message: expect.stringContaining('keeping up'),
+        });
     });
 
     it('restarts after a crash, logging why with its stderr', async () => {
@@ -120,7 +138,7 @@ describe('AudioService', () => {
         const crashes = log.lines.filter((line) => line.includes('stopped unexpectedly'));
         expect(crashes.length).toBeGreaterThanOrEqual(2);
         expect(crashes[0]).toContain('exit code 3');
-        expect(crashes[0]).toContain('something broke');
+        expect(crashes[0]).toContain('something broke\nat the very end');
         // The pause doubles with each quick stop: 0.05 s, then 0.1 s.
         expect(crashes[0]).toContain('in 0.05 s');
         expect(crashes[1]).toContain('in 0.1 s');

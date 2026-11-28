@@ -9,7 +9,7 @@ piano-lab's web API is how every client talks to the piano, piano-lab's own web 
 ## Ground rules
 - **Requests must be addressed to `localhost`**, `127.0.0.1` or `[::1]` (the `Host` header). Anything else is refused with 403, so a website can't reach piano-lab by pointing its own name at this computer (DNS rebinding).
 - **Pages from other websites are refused.** A `POST`, or a WebSocket handshake, whose `Origin` isn't one of piano-lab's own pages gets a 403. Scripts and command-line tools send no `Origin`, and aren't affected.
-- **Bodies are JSON.** A `POST` with a body must send `Content-Type: application/json`; anything else gets a 415. Bodies and WebSocket messages are at most 64 KiB.
+- **Bodies are JSON.** A `POST` with a body must send `Content-Type: application/json`; anything else gets a 415. Bodies and WebSocket messages are at most 64 KiB. A `POST` that takes nothing (stop, and starting or stopping a recording) takes no body, or `{}`.
 - **Input is checked before anything runs:** unknown fields, wrong types and oversized values are refused with a message saying where.
 
 ## Errors
@@ -26,7 +26,7 @@ Every failed request answers with the same shape, and an HTTP status that matche
 | `too-large` | 413 | The body is over 64 KiB |
 | `unsupported-media-type` | 415 | A body that isn't `application/json` |
 | `refused` | 422 | Well-formed, but the piano refused it, e.g. a setting out of range, or stopping a recording when none is running |
-| `unavailable` | 503 | The audio service isn't running right now: it's starting, or restarting after a problem |
+| `unavailable` | 503 | The audio service isn't running right now (it's starting, or restarting after a problem), or isn't keeping up with what it's sent |
 | `timeout` | 504 | The audio service didn't answer in time |
 | `internal` | 500 | Something went wrong inside piano-lab |
 
@@ -51,7 +51,7 @@ What's running.
 }
 ```
 - `audioService` is `starting`, `running`, `restarting` (it stopped unexpectedly and is being started again) or `stopping`.
-- `audio` is `null` unless the audio service is `running`. Its `audioType` and `audioOutput` are empty when no output is open.
+- `audio` is `null` unless the audio service is `running` and answers; `null` while it's `running` means it didn't answer in time. Its `audioType` and `audioOutput` are empty when no output is open.
 - `lateBlocks` counts the blocks the piano took longer to render than they last, since the audio device opened: each is almost certainly an audible glitch. `driverXruns` is the audio driver's own count, left out when the driver doesn't keep one.
 
 ### `POST /api/v0/stop`
@@ -135,7 +135,7 @@ Connect to `ws://localhost:4440/api/v0/live`. There are no requests and replies:
 ```json
 { "type": "note.on", "key": 60, "velocity": 0.8 }
 ```
-On one connection, commands are carried out in the order they're sent.
+On one connection, commands are carried out in the order they're sent. If the audio service falls far behind (about 1 MiB of commands waiting), new ones are dropped, each answered with an `error` event, until it catches up.
 
 ### Events (piano-lab to clients)
 | `type` | Fields | When |

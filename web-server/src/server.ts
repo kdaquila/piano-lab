@@ -5,6 +5,7 @@
 import fastifyWebsocket from '@fastify/websocket';
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify';
+import { Type } from 'typebox';
 import { Compile } from 'typebox/compile';
 import {
     Command,
@@ -21,6 +22,7 @@ import {
     type AudioService,
     type FailureKind,
     type Log,
+    type NotifyResult,
 } from './audio-service.ts';
 import { publicState, send, type Client, type LiveHub } from './live.ts';
 
@@ -119,6 +121,20 @@ function localPort(request: FastifyRequest): number {
 /** A checker for WebSocket commands. */
 const commandChecker = Compile(Command);
 
+/** The body of a request that takes nothing: none (which Fastify checks as null), or `{}`. */
+const NoBody = Type.Union([Type.Null(), Type.Object({}, { additionalProperties: false })]);
+
+/** Why a notification wasn't sent, for the client that sent it. */
+const notifyProblems: Record<Exclude<NotifyResult, 'sent'>, string> = {
+    unavailable: "the audio service isn't running right now",
+    busy: "the audio service isn't keeping up right now; the note was dropped",
+};
+
+/** Why notifying `result` failed, or undefined when it was sent. */
+function notifyProblem(result: NotifyResult): string | undefined {
+    return result === 'sent' ? undefined : notifyProblems[result];
+}
+
 /** Builds the web server (not yet listening). */
 export async function buildServer(options: ServerOptions): Promise<FastifyInstance> {
     const { audio, hub, log } = options;
@@ -173,16 +189,24 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
 
     // --- Requests --------------------------------------------------------------------------------
 
+    // The status says what's wrong rather than failing: an audio service that stops or doesn't
+    // answer is reported by its state, with no `audio`.
     app.get(paths.status, async (): Promise<Status> => {
-        const state = audio.state;
+        const audioStatus =
+            audio.state === 'running'
+                ? await audio.request('status', {}).catch((error: unknown) => {
+                      if (error instanceof AudioServiceError) return null;
+                      throw error;
+                  })
+                : null;
         return {
             version: options.version,
-            audioService: publicState(state),
-            audio: state === 'running' ? await audio.request('status', {}) : null,
+            audioService: publicState(audio.state),
+            audio: audioStatus,
         };
     });
 
-    app.post(paths.stop, async (_request, reply) => {
+    app.post(paths.stop, { schema: { body: NoBody } }, async (_request, reply) => {
         reply.raw.once('finish', options.onStop);
         return reply.code(202).send({});
     });
@@ -193,8 +217,12 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     app.post(paths.settings, { schema: { body: SettingValues } }, (request) =>
         audio.request('settings.set', request.body),
     );
-    app.post(paths.recordingStart, () => audio.request('recording.start', {}));
-    app.post(paths.recordingStop, () => audio.request('recording.stop', {}));
+    app.post(paths.recordingStart, { schema: { body: NoBody } }, () =>
+        audio.request('recording.start', {}),
+    );
+    app.post(paths.recordingStop, { schema: { body: NoBody } }, () =>
+        audio.request('recording.stop', {}),
+    );
 
     // --- Live traffic ----------------------------------------------------------------------------
 
@@ -225,13 +253,11 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
             }
             switch (value.type) {
                 case 'note.on':
-                    return audio.notify('note.on', { key: value.key, velocity: value.velocity })
-                        ? undefined
-                        : "the audio service isn't running right now";
+                    return notifyProblem(
+                        audio.notify('note.on', { key: value.key, velocity: value.velocity }),
+                    );
                 case 'note.off':
-                    return audio.notify('note.off', { key: value.key })
-                        ? undefined
-                        : "the audio service isn't running right now";
+                    return notifyProblem(audio.notify('note.off', { key: value.key }));
                 case 'settings.set':
                     // Success reaches every client as a `settings` event, from the audio service.
                     audio.request('settings.set', value.values).catch((error: unknown) => {

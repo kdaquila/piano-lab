@@ -24,7 +24,7 @@ import {
 export interface Timings {
     /** A request waiting for its reply. */
     replyTimeoutMs: number;
-    /** The audio service reporting it's ready, after starting. */
+    /** The audio service reporting it's ready, after each start; if it doesn't, it's restarted. */
     readyTimeoutMs: number;
     /** Stopping once its input ends (it saves its settings first), before it's ended by force. */
     stopTimeoutMs: number;
@@ -48,6 +48,20 @@ export const defaultTimings: Timings = {
 
 /** How many of the audio service's last stderr lines are kept, to log when it stops. */
 const stderrLinesKept = 20;
+
+/**
+ * The most bytes that may wait to be written to the audio service. Past that, it isn't keeping
+ * up: new requests and notifications are refused rather than queued without limit.
+ */
+export const maxQueuedBytes = 1024 * 1024;
+
+/** What `notify` did: sent it, or why not. */
+export type NotifyResult =
+    | 'sent'
+    /** The audio service isn't running right now. */
+    | 'unavailable'
+    /** Too much is already waiting to be written to it (`maxQueuedBytes`). */
+    | 'busy';
 
 /** A program to run, with its arguments. */
 export interface Command {
@@ -126,6 +140,8 @@ export interface AudioServiceOptions {
     onStateChange?: (state: RunState) => void;
     /** Shorter timings, for tests. */
     timings?: Partial<Timings>;
+    /** A smaller `maxQueuedBytes`, for tests. */
+    maxQueuedBytes?: number;
 }
 
 /** A request waiting for its reply. */
@@ -141,6 +157,9 @@ interface ReadyWaiter {
     resolve: () => void;
     reject: (error: AudioServiceError) => void;
 }
+
+/** Why the audio service can't take more right now, or undefined when it can. */
+type Unready = 'unavailable' | 'busy' | undefined;
 
 /**
  * The running audio service. `start` runs it; from then on it's kept running, restarted after
@@ -159,6 +178,8 @@ export class AudioService {
     #startedAt = 0;
     #restartDelayMs: number;
     #restartTimer: NodeJS.Timeout | undefined;
+    /** Restarts the audio service if it isn't ready in time, after each start. */
+    #readyTimer: NodeJS.Timeout | undefined;
     #exited: Promise<void> = Promise.resolve();
 
     constructor(options: AudioServiceOptions) {
@@ -182,7 +203,7 @@ export class AudioService {
 
     /**
      * Starts the audio service. Resolves once it's ready for requests; rejects if it isn't in time
-     * (`readyTimeoutMs`) or stops first (it's restarted anyway).
+     * (`readyTimeoutMs`) or stops first. Either way it's restarted, until `stop`.
      */
     start(): Promise<void> {
         this.#stopping = false;
@@ -198,10 +219,13 @@ export class AudioService {
         params: RequestParams<M>,
     ): Promise<RequestResult<M>> {
         const child = this.#child;
-        if (this.#state !== 'running' || child === undefined) {
-            return Promise.reject(
-                new AudioServiceError('unavailable', "the audio service isn't running right now"),
-            );
+        const unready = this.#unready();
+        if (unready !== undefined || child === undefined) {
+            const message =
+                unready === 'busy'
+                    ? "the audio service isn't keeping up right now; try again"
+                    : "the audio service isn't running right now";
+            return Promise.reject(new AudioServiceError('unavailable', message));
         }
         const id = this.#nextId++;
         return new Promise<RequestResult<M>>((resolve, reject) => {
@@ -222,15 +246,25 @@ export class AudioService {
     }
 
     /**
-     * Sends a notification (no reply comes). Returns false, sending nothing, when the audio
-     * service isn't ready.
+     * Sends a notification (no reply comes). Sends nothing, and says why, when the audio service
+     * isn't running or isn't keeping up.
      */
-    notify<M extends NotificationMethod>(method: M, params: NotificationParams<M>): boolean {
-        if (this.#state !== 'running' || this.#child === undefined) {
-            return false;
+    notify<M extends NotificationMethod>(method: M, params: NotificationParams<M>): NotifyResult {
+        const unready = this.#unready();
+        if (unready !== undefined || this.#child === undefined) {
+            return unready ?? 'unavailable';
         }
         this.#child.stdin.write(notificationLine(method, params));
-        return true;
+        return 'sent';
+    }
+
+    /** Why nothing more can be sent to the audio service right now, if anything. */
+    #unready(): Unready {
+        if (this.#state !== 'running' || this.#child === undefined) {
+            return 'unavailable';
+        }
+        const limit = this.#options.maxQueuedBytes ?? maxQueuedBytes;
+        return this.#child.stdin.writableLength > limit ? 'busy' : undefined;
     }
 
     /**
@@ -240,6 +274,7 @@ export class AudioService {
     async stop(): Promise<void> {
         this.#stopping = true;
         clearTimeout(this.#restartTimer);
+        clearTimeout(this.#readyTimer);
         const child = this.#child;
         if (child === undefined) {
             this.#setState('stopped');
@@ -256,24 +291,13 @@ export class AudioService {
         clearTimeout(timer);
     }
 
-    /** A promise for the next `ready` event, rejected after `readyTimeoutMs`. */
+    /**
+     * A promise for the next `ready` event. Rejected if the audio service stops first, or isn't
+     * ready in time (see `#spawn`).
+     */
     #nextReady(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.#readyWaiters = this.#readyWaiters.filter((w) => w !== waiter);
-                reject(new AudioServiceError('timeout', "the audio service didn't get ready"));
-            }, this.#timings.readyTimeoutMs);
-            const waiter: ReadyWaiter = {
-                resolve: () => {
-                    clearTimeout(timer);
-                    resolve();
-                },
-                reject: (error) => {
-                    clearTimeout(timer);
-                    reject(error);
-                },
-            };
-            this.#readyWaiters.push(waiter);
+            this.#readyWaiters.push({ resolve, reject });
         });
     }
 
@@ -292,6 +316,17 @@ export class AudioService {
         this.#stderrTail = [];
         let resolveExited = () => {};
         this.#exited = new Promise((resolve) => (resolveExited = resolve));
+        // A program that hangs while starting (e.g. in a device driver) is ended, and so restarted.
+        this.#readyTimer = setTimeout(() => {
+            const seconds = this.#timings.readyTimeoutMs / 1000;
+            this.#options.log.error(`the audio service wasn't ready after ${seconds} s; ending it`);
+            for (const waiter of this.#readyWaiters.splice(0)) {
+                waiter.reject(
+                    new AudioServiceError('timeout', "the audio service didn't get ready"),
+                );
+            }
+            child.kill();
+        }, this.#timings.readyTimeoutMs);
 
         const stdout = new LineSplitter();
         child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
@@ -315,6 +350,10 @@ export class AudioService {
         });
         child.on('close', (code, signal) => {
             this.#child = undefined;
+            clearTimeout(this.#readyTimer);
+            // Its last stderr line may have had no line ending.
+            this.#stderrTail.push(...stderr.flush());
+            this.#stderrTail.splice(0, Math.max(0, this.#stderrTail.length - stderrLinesKept));
             this.#onExit(code, signal);
             resolveExited();
         });
@@ -378,6 +417,7 @@ export class AudioService {
 
     /** The audio service is ready for requests. */
     #onReady(version: string): void {
+        clearTimeout(this.#readyTimer);
         this.#setState('running');
         this.#options.log.info(`the audio service ${version} is ready`);
         for (const waiter of this.#readyWaiters.splice(0)) {

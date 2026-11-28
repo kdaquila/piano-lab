@@ -54,6 +54,9 @@ async function errorMessage(response: Response): Promise<string> {
 export function describeStatus(status: Status): string {
     const lines = [`piano-lab ${status.version}: the audio service is ${status.audioService}`];
     const audio = status.audio;
+    if (audio === null && status.audioService === 'running') {
+        lines.push("audio: the audio service didn't answer; it may be stuck");
+    }
     if (audio !== null) {
         lines.push(
             audio.audioOutput === ''
@@ -77,6 +80,10 @@ async function showStatus(port: number): Promise<number> {
         return 1;
     }
     const body: unknown = await response.json().catch(() => undefined);
+    if (errorChecker.Check(body)) {
+        console.error(`piano-lab couldn't say: ${body.error.message}`);
+        return 1;
+    }
     if (!response.ok || !statusChecker.Check(body)) {
         console.error(
             `piano-lab answered oddly (HTTP ${response.status}); is something else on port ${port}?`,

@@ -101,7 +101,7 @@ npx piano-lab status
 ```powershell
 npx piano-lab stop
 ```
-`npx piano-lab help` lists every command. The web API itself is described in [docs/web-api.md](docs/web-api.md); for example, `curl http://localhost:4440/api/v0/status` shows the same status as JSON.
+`npx piano-lab help` lists every command. The web API itself is described in [docs/web-api.md](docs/web-api.md); for example, `curl.exe http://localhost:4440/api/v0/status` shows the same status as JSON.
 
 ### Talking to the audio service directly
 For debugging, `npm run start:audio` runs the audio service alone (the program is `.\build\dev\audio-service\app\piano-lab-audio.exe run`). It takes commands on its input, one JSON line each, the same ones the web server sends. For example, this shows what's open:
